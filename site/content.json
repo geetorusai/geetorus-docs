@@ -1,0 +1,1265 @@
+{
+  "sections": [
+    {
+      "tier": "Learn",
+      "title": "Quickstart",
+      "icon": "rocket",
+      "desc": "Learn what Geetorus is, install it, create your first company, hire an agent, and watch it work.",
+      "pages": [
+        {
+          "title": "Quickstart Path",
+          "file": "../docs/guides/getting-started/five-minute-path.md"
+        },
+        {
+          "title": "What is Geetorus?",
+          "file": "../docs/guides/welcome/what-is-geetorus.md"
+        },
+        {
+          "title": "Key Concepts",
+          "file": "../docs/guides/welcome/key-concepts.md"
+        },
+        {
+          "title": "Installation",
+          "file": "../docs/guides/getting-started/installation.md"
+        },
+        {
+          "title": "Create Your First Company",
+          "file": "../docs/guides/getting-started/your-first-company.md"
+        },
+        {
+          "title": "Hire Your First Agent",
+          "file": "../docs/guides/getting-started/your-first-agent.md"
+        },
+        {
+          "title": "Watching Agents Work",
+          "file": "../docs/guides/getting-started/watching-agents-work.md"
+        },
+        {
+          "title": "Glossary",
+          "file": "../docs/guides/welcome/glossary.md"
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Working Day-to-day",
+      "icon": "layout-dashboard",
+      "desc": "Day-to-day operation: dashboard, tasks, approvals, budgets, and the activity log.",
+      "pages": [
+        {
+          "title": "The Dashboard",
+          "file": "../docs/guides/day-to-day/dashboard.md"
+        },
+        {
+          "title": "Command Palette",
+          "file": "../docs/guides/day-to-day/command-palette.md"
+        },
+        {
+          "title": "Issues",
+          "file": "../docs/guides/day-to-day/issues.md"
+        },
+        {
+          "title": "Work Modes",
+          "file": "../docs/guides/day-to-day/work-modes.md"
+        },
+        {
+          "title": "Artifacts",
+          "file": "../docs/guides/day-to-day/artifacts.md"
+        },
+        {
+          "title": "Blocked Inbox",
+          "file": "../docs/guides/day-to-day/blocked-inbox.md"
+        },
+        {
+          "title": "Decisions",
+          "file": "../docs/guides/day-to-day/decisions.md"
+        },
+        {
+          "title": "Approvals",
+          "file": "../docs/guides/day-to-day/approvals.md"
+        },
+        {
+          "title": "Costs & Budgets",
+          "file": "../docs/guides/day-to-day/costs.md"
+        },
+        {
+          "title": "Activity Log",
+          "file": "../docs/guides/day-to-day/activity-log.md"
+        },
+        {
+          "title": "Work Timeline",
+          "file": "../docs/guides/day-to-day/work-timeline.md"
+        },
+        {
+          "title": "Feedback & Voting",
+          "file": "../docs/guides/day-to-day/feedback-voting.md"
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Your Org & Agents",
+      "icon": "network",
+      "desc": "Shape the org chart, set up delegation paths, and pick adapters for your agents.",
+      "pages": [
+        {
+          "title": "Agents",
+          "file": "../docs/guides/org/agents.md"
+        },
+        {
+          "title": "Skills",
+          "file": "../docs/guides/org/skills.md"
+        },
+        {
+          "title": "Team Catalog",
+          "file": "../docs/guides/org/team-catalog.md"
+        },
+        {
+          "title": "Org Structure",
+          "file": "../docs/guides/org/org-structure.md"
+        },
+        {
+          "title": "Members & Access",
+          "file": "../docs/guides/org/members-and-access.md"
+        },
+        {
+          "title": "Delegation",
+          "file": "../docs/guides/org/delegation.md"
+        },
+        {
+          "title": "Agent Adapters",
+          "file": "../docs/guides/org/agent-adapters.md"
+        },
+        {
+          "title": "Adapter Manager",
+          "file": "../docs/guides/org/adapters.md"
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Connectors",
+      "icon": "unplug",
+      "desc": "Connect outside services to your agents: app integrations, model providers, and chat channels, plus the access model, per-action permissions, and a setup guide for each one.",
+      "pages": [
+        {
+          "title": "Connectors Overview",
+          "file": "../docs/connectors.md"
+        },
+        {
+          "title": "Your First Connector",
+          "file": "../docs/connectors/first-connector.md"
+        },
+        {
+          "title": "How Access Works",
+          "file": "../docs/connectors/access-model.md"
+        },
+        {
+          "title": "Shared Guides",
+          "pages": [
+            {
+              "title": "Share With People and Agents",
+              "file": "../docs/connectors/share-access.md"
+            },
+            {
+              "title": "Separate Accounts",
+              "file": "../docs/connectors/separate-accounts.md"
+            },
+            {
+              "title": "Action Permissions",
+              "file": "../docs/connectors/action-permissions.md"
+            },
+            {
+              "title": "Review Requests",
+              "file": "../docs/connectors/review-requests.md"
+            },
+            {
+              "title": "Verify and Troubleshoot",
+              "file": "../docs/connectors/verify-and-troubleshoot.md"
+            },
+            {
+              "title": "Reauthorize and Disconnect",
+              "file": "../docs/connectors/reauthorize-and-disconnect.md"
+            },
+            {
+              "title": "Custom MCP Servers",
+              "file": "../docs/connectors/custom-mcp-servers.md"
+            },
+            {
+              "title": "Google Workspace Setup",
+              "file": "../docs/connectors/google-setup.md"
+            }
+          ]
+        },
+        {
+          "title": "Recognized but Unlisted",
+          "file": "../docs/connectors/recognized-providers.md"
+        },
+        {
+          "title": "Connector Catalog",
+          "pages": [
+            {
+              "title": "AgentMail",
+              "file": "../docs/connectors/agentmail.md"
+            },
+            {
+              "title": "Airtable",
+              "file": "../docs/connectors/airtable.md"
+            },
+            {
+              "title": "Anthropic",
+              "file": "../docs/connectors/anthropic.md"
+            },
+            {
+              "title": "Asana",
+              "file": "../docs/connectors/asana.md"
+            },
+            {
+              "title": "Box",
+              "file": "../docs/connectors/box.md"
+            },
+            {
+              "title": "ClickHouse",
+              "file": "../docs/connectors/clickhouse.md"
+            },
+            {
+              "title": "Cloudflare",
+              "file": "../docs/connectors/cloudflare.md"
+            },
+            {
+              "title": "Cloudinary",
+              "file": "../docs/connectors/cloudinary.md"
+            },
+            {
+              "title": "Discord",
+              "file": "../docs/connectors/discord.md"
+            },
+            {
+              "title": "GitHub",
+              "file": "../docs/connectors/github.md"
+            },
+            {
+              "title": "GitHub Setup",
+              "file": "../docs/connectors/github-setup.md"
+            },
+            {
+              "title": "Gmail",
+              "file": "../docs/connectors/gmail.md"
+            },
+            {
+              "title": "Gmail Setup",
+              "file": "../docs/connectors/gmail-setup.md"
+            },
+            {
+              "title": "Google Calendar",
+              "file": "../docs/connectors/google-calendar.md"
+            },
+            {
+              "title": "Google Chat",
+              "file": "../docs/connectors/google-chat.md"
+            },
+            {
+              "title": "Google Docs",
+              "file": "../docs/connectors/google-docs.md"
+            },
+            {
+              "title": "Google Drive",
+              "file": "../docs/connectors/google-drive.md"
+            },
+            {
+              "title": "Google People",
+              "file": "../docs/connectors/google-people.md"
+            },
+            {
+              "title": "Google Sheets",
+              "file": "../docs/connectors/google-sheets.md"
+            },
+            {
+              "title": "Google Slides",
+              "file": "../docs/connectors/google-slides.md"
+            },
+            {
+              "title": "Google Workspace Search",
+              "file": "../docs/connectors/google-workspace-search.md"
+            },
+            {
+              "title": "Grok",
+              "file": "../docs/connectors/xai.md"
+            },
+            {
+              "title": "Hugging Face",
+              "file": "../docs/connectors/hugging-face.md"
+            },
+            {
+              "title": "iMessage Photon",
+              "file": "../docs/connectors/imessage-photon.md"
+            },
+            {
+              "title": "Jira",
+              "file": "../docs/connectors/jira.md"
+            },
+            {
+              "title": "Linear",
+              "file": "../docs/connectors/linear.md"
+            },
+            {
+              "title": "Mem0",
+              "file": "../docs/connectors/mem0.md"
+            },
+            {
+              "title": "Microsoft Teams",
+              "file": "../docs/connectors/microsoft-teams.md"
+            },
+            {
+              "title": "Miro",
+              "file": "../docs/connectors/miro.md"
+            },
+            {
+              "title": "Mixpanel",
+              "file": "../docs/connectors/mixpanel.md"
+            },
+            {
+              "title": "Netlify",
+              "file": "../docs/connectors/netlify.md"
+            },
+            {
+              "title": "Notion",
+              "file": "../docs/connectors/notion.md"
+            },
+            {
+              "title": "OpenAI",
+              "file": "../docs/connectors/openai.md"
+            },
+            {
+              "title": "OpenRouter",
+              "file": "../docs/connectors/openrouter.md"
+            },
+            {
+              "title": "PagerDuty",
+              "file": "../docs/connectors/pagerduty.md"
+            },
+            {
+              "title": "PostHog",
+              "file": "../docs/connectors/posthog.md"
+            },
+            {
+              "title": "Postman",
+              "file": "../docs/connectors/postman.md"
+            },
+            {
+              "title": "Resend",
+              "file": "../docs/connectors/resend.md"
+            },
+            {
+              "title": "Sentry",
+              "file": "../docs/connectors/sentry.md"
+            },
+            {
+              "title": "Shopify",
+              "file": "../docs/connectors/shopify.md"
+            },
+            {
+              "title": "Slack",
+              "file": "../docs/connectors/slack.md"
+            },
+            {
+              "title": "Stripe",
+              "file": "../docs/connectors/stripe.md"
+            },
+            {
+              "title": "Supabase",
+              "file": "../docs/connectors/supabase.md"
+            },
+            {
+              "title": "Telegram",
+              "file": "../docs/connectors/telegram.md"
+            },
+            {
+              "title": "Todoist",
+              "file": "../docs/connectors/todoist.md"
+            },
+            {
+              "title": "Webflow",
+              "file": "../docs/connectors/webflow.md"
+            },
+            {
+              "title": "Wix",
+              "file": "../docs/connectors/wix.md"
+            },
+            {
+              "title": "Zapier",
+              "file": "../docs/connectors/zapier.md"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Projects & Workflow",
+      "icon": "kanban-square",
+      "desc": "Projects, goals, routines, and execution workspaces.",
+      "pages": [
+        {
+          "title": "Projects",
+          "file": "../docs/guides/projects-workflow/projects.md"
+        },
+        {
+          "title": "Goals",
+          "file": "../docs/guides/projects-workflow/goals.md"
+        },
+        {
+          "title": "Heartbeats & Routines",
+          "file": "../docs/guides/projects-workflow/routines.md"
+        },
+        {
+          "title": "Execution Workspaces",
+          "file": "../docs/guides/projects-workflow/workspaces.md"
+        },
+        {
+          "title": "Custom Sandbox Images",
+          "file": "../docs/guides/projects-workflow/custom-sandbox-images.md"
+        },
+        {
+          "title": "Task Watchdogs",
+          "file": "../docs/guides/projects-workflow/task-watchdogs.md"
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Power Features",
+      "icon": "settings-2",
+      "desc": "Execution policies, export/import, and terminal setup for power users.",
+      "pages": [
+        {
+          "title": "Execution Policy",
+          "file": "../docs/guides/power/execution-policy.md"
+        },
+        {
+          "title": "Export & Import",
+          "file": "../docs/guides/power/export-import.md"
+        },
+        {
+          "title": "Terminal Setup",
+          "file": "../docs/guides/power/terminal-setup.md"
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Experimental",
+      "icon": "flask-conical",
+      "desc": "Opt-in features that ship behind flags — what each one does, why it exists, and how to turn it on.",
+      "pages": [
+        {
+          "title": "Overview",
+          "file": "../docs/experimental/overview.md"
+        },
+        {
+          "title": "Connections v3 (Apps)",
+          "file": "../docs/experimental/connections-apps.md"
+        },
+        {
+          "title": "Environments",
+          "file": "../docs/experimental/environments.md"
+        },
+        {
+          "title": "Isolated Workspaces",
+          "file": "../docs/experimental/isolated-workspaces.md"
+        },
+        {
+          "title": "Experimental File Viewer",
+          "file": "../docs/experimental/file-viewer.md"
+        },
+        {
+          "title": "External Objects",
+          "file": "../docs/experimental/external-objects.md"
+        },
+        {
+          "title": "Task Plan Decomposition Panel",
+          "file": "../docs/experimental/plan-decomposition-panel.md"
+        },
+        {
+          "title": "Chat-Style Tasks",
+          "file": "../docs/experimental/task-chat.md"
+        },
+        {
+          "title": "Task Watchdogs",
+          "file": "../docs/experimental/task-watchdogs.md"
+        },
+        {
+          "title": "Status Cards",
+          "file": "../docs/experimental/status-cards.md"
+        },
+        {
+          "title": "Cloud Sync",
+          "file": "../docs/experimental/cloud-sync.md"
+        },
+        {
+          "title": "Server Info Debug View",
+          "file": "../docs/experimental/server-info-debug-view.md"
+        },
+        {
+          "title": "Auto-Restart Dev Server",
+          "file": "../docs/experimental/auto-restart-dev-server.md"
+        },
+        {
+          "title": "Auto-Create Recovery Tasks",
+          "file": "../docs/experimental/auto-create-recovery-tasks.md"
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "How-to Guides",
+      "icon": "wrench",
+      "desc": "Field-tested recipes for specific problems — short, copy-pasteable, current.",
+      "pages": [
+        {
+          "title": "Members & Access",
+          "pages": [
+            {
+              "title": "Enable Multi-User Login",
+              "file": "../docs/how-to/enable-multi-user-login.md"
+            },
+            {
+              "title": "Add a Human Teammate",
+              "file": "../docs/how-to/add-a-human-teammate.md"
+            },
+            {
+              "title": "Offboard a Member",
+              "file": "../docs/how-to/offboard-a-member.md"
+            }
+          ]
+        },
+        {
+          "title": "Governance & Budget",
+          "pages": [
+            {
+              "title": "Set a Monthly Budget",
+              "file": "../docs/how-to/set-monthly-budget.md"
+            },
+            {
+              "title": "Require Approval Before Spend",
+              "file": "../docs/how-to/require-board-approval-before-spend.md"
+            },
+            {
+              "title": "Handle Board Approvals for Hires",
+              "file": "../docs/how-to/handle-board-approvals-for-hires.md"
+            }
+          ]
+        },
+        {
+          "title": "Agents & Skills",
+          "pages": [
+            {
+              "title": "Bring Your Own Agent",
+              "file": "../docs/how-to/bring-your-own-agent.md"
+            },
+            {
+              "title": "Connect an Agent to GitHub",
+              "file": "../docs/how-to/connect-agent-to-github.md"
+            },
+            {
+              "title": "Add an MCP Server to an Agent",
+              "file": "../docs/how-to/add-mcp-server-to-agent.md"
+            },
+            {
+              "title": "Write a Company Skill",
+              "file": "../docs/how-to/write-a-company-skill.md"
+            }
+          ]
+        },
+        {
+          "title": "Automation & Notifications",
+          "pages": [
+            {
+              "title": "Create a Daily Routine",
+              "file": "../docs/how-to/create-a-daily-routine.md"
+            },
+            {
+              "title": "Wire Slack/Discord Notifications",
+              "file": "../docs/how-to/wire-slack-discord-notifications.md"
+            }
+          ]
+        },
+        {
+          "title": "Secrets & Providers",
+          "pages": [
+            {
+              "title": "Update or Rotate a Provider API Key",
+              "file": "../docs/how-to/rotate-provider-api-key.md"
+            },
+            {
+              "title": "Connect an AWS Secrets Manager Vault",
+              "file": "../docs/how-to/connect-aws-secrets-vault.md"
+            }
+          ]
+        },
+        {
+          "title": "Deploy & Maintain",
+          "pages": [
+            {
+              "title": "Deploy to a VPS or Fly.io",
+              "file": "../docs/how-to/deploy-to-vps-or-fly.md"
+            },
+            {
+              "title": "Update Geetorus to the Latest Version",
+              "file": "../docs/how-to/update-geetorus.md"
+            },
+            {
+              "title": "Back Up and Restore a Company",
+              "file": "../docs/how-to/back-up-and-restore-a-company.md"
+            },
+            {
+              "title": "Debug a Stuck Heartbeat",
+              "file": "../docs/how-to/debug-stuck-heartbeat.md"
+            },
+            {
+              "title": "Sync to Cloud Upstream",
+              "file": "../docs/how-to/sync-to-cloud-upstream.md"
+            },
+            {
+              "title": "Develop a plugin locally",
+              "file": "../docs/how-to/develop-a-plugin-locally.md"
+            },
+            {
+              "title": "Community Desktop App (unofficial)",
+              "file": "../docs/how-to/community-desktop-app.md"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tier": "Learn",
+      "title": "Administration",
+      "icon": "shield",
+      "desc": "Company settings, instance configuration, plugins, and CLI auth — for operators and admins.",
+      "pages": [
+        {
+          "title": "Company",
+          "file": "../docs/administration/company.md"
+        },
+        {
+          "title": "Roles & Permissions",
+          "file": "../docs/administration/roles-and-permissions.md"
+        },
+        {
+          "title": "Secret Scopes",
+          "file": "../docs/administration/secret-scopes.md"
+        },
+        {
+          "title": "Secret Folders",
+          "file": "../docs/administration/secret-folders.md"
+        },
+        {
+          "title": "Settings",
+          "file": "../docs/administration/settings.md"
+        },
+        {
+          "title": "Trust & Low-Trust Review",
+          "file": "../docs/administration/trust-and-low-trust-review.md"
+        },
+        {
+          "title": "Plugins",
+          "file": "../docs/administration/plugins.md"
+        },
+        {
+          "title": "CLI Auth",
+          "file": "../docs/administration/cli-auth.md"
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "API",
+      "icon": "braces",
+      "desc": "Every endpoint on the control plane: companies, agents, issues, approvals, costs.",
+      "pages": [
+        {
+          "title": "Overview",
+          "file": "../docs/reference/api/overview.md"
+        },
+        {
+          "title": "Authentication",
+          "file": "../docs/reference/api/authentication.md"
+        },
+        {
+          "title": "Companies",
+          "file": "../docs/reference/api/companies.md"
+        },
+        {
+          "title": "Agents",
+          "file": "../docs/reference/api/agents.md"
+        },
+        {
+          "title": "Built-in Agents",
+          "file": "../docs/reference/api/built-in-agents.md"
+        },
+        {
+          "title": "Issues",
+          "file": "../docs/reference/api/issues.md"
+        },
+        {
+          "title": "Cases",
+          "file": "../docs/reference/api/cases.md"
+        },
+        {
+          "title": "Attention",
+          "file": "../docs/reference/api/attention.md"
+        },
+        {
+          "title": "Decisions",
+          "file": "../docs/reference/api/decisions.md"
+        },
+        {
+          "title": "Checkbox Confirmations",
+          "file": "../docs/reference/api/checkbox-confirmations.md"
+        },
+        {
+          "title": "Approvals",
+          "file": "../docs/reference/api/approvals.md"
+        },
+        {
+          "title": "Goals & Projects",
+          "file": "../docs/reference/api/goals-and-projects.md"
+        },
+        {
+          "title": "Resource Memberships",
+          "file": "../docs/reference/api/resource-memberships.md"
+        },
+        {
+          "title": "Folders",
+          "file": "../docs/reference/api/folders.md"
+        },
+        {
+          "title": "Company Skill Policy",
+          "file": "../docs/reference/api/company-skill-policy.md"
+        },
+        {
+          "title": "Inbox Agent Policy",
+          "file": "../docs/reference/api/inbox-agent-policy.md"
+        },
+        {
+          "title": "Costs",
+          "file": "../docs/reference/api/costs.md"
+        },
+        {
+          "title": "Secrets",
+          "file": "../docs/reference/api/secrets.md"
+        },
+        {
+          "title": "Activity",
+          "file": "../docs/reference/api/activity.md"
+        },
+        {
+          "title": "Decision Training",
+          "file": "../docs/reference/api/decision-training.md"
+        },
+        {
+          "title": "Summary Slots",
+          "file": "../docs/reference/api/summary-slots.md"
+        },
+        {
+          "title": "Status Cards",
+          "file": "../docs/reference/api/status-cards.md"
+        },
+        {
+          "title": "Dashboard",
+          "file": "../docs/reference/api/dashboard.md"
+        },
+        {
+          "title": "Routines",
+          "file": "../docs/reference/api/routines.md"
+        },
+        {
+          "title": "Adapters",
+          "file": "../docs/reference/api/adapters.md"
+        },
+        {
+          "title": "Teams Catalog",
+          "file": "../docs/reference/api/teams-catalog.md"
+        },
+        {
+          "title": "Plugins",
+          "file": "../docs/reference/api/plugins.md"
+        },
+        {
+          "title": "Tool Gateway",
+          "file": "../docs/reference/api/tool-gateway.md"
+        },
+        {
+          "title": "Connection Intents API",
+          "file": "../docs/reference/api/connection-intents.md"
+        },
+        {
+          "title": "Instance Admin",
+          "file": "../docs/reference/api/instance-admin.md"
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "CLI",
+      "icon": "terminal",
+      "desc": "Complete command-line reference: local setup, identity, and every control-plane command family.",
+      "pages": [
+        {
+          "title": "Overview",
+          "file": "../docs/reference/cli/overview.md"
+        },
+        {
+          "title": "Installing the CLI",
+          "file": "../docs/reference/cli/installation.md"
+        },
+        {
+          "title": "Common Options",
+          "file": "../docs/reference/cli/common-options.md"
+        },
+        {
+          "title": "Output & Scripting",
+          "file": "../docs/reference/cli/output-and-scripting.md"
+        },
+        {
+          "title": "Setup Commands",
+          "file": "../docs/reference/cli/setup-commands.md"
+        },
+        {
+          "title": "Test Drive",
+          "file": "../docs/reference/cli/test-drive.md"
+        },
+        {
+          "title": "Service",
+          "file": "../docs/reference/cli/service.md"
+        },
+        {
+          "title": "Dev Environments",
+          "file": "../docs/reference/cli/dev-environments.md"
+        },
+        {
+          "title": "Authentication & Tokens",
+          "file": "../docs/reference/cli/authentication.md"
+        },
+        {
+          "title": "Connect",
+          "file": "../docs/reference/cli/connect.md"
+        },
+        {
+          "title": "Token",
+          "file": "../docs/reference/cli/token.md"
+        },
+        {
+          "title": "Company",
+          "file": "../docs/reference/cli/company.md"
+        },
+        {
+          "title": "Project",
+          "file": "../docs/reference/cli/project.md"
+        },
+        {
+          "title": "Goal",
+          "file": "../docs/reference/cli/goal.md"
+        },
+        {
+          "title": "Issue",
+          "file": "../docs/reference/cli/issue.md"
+        },
+        {
+          "title": "Agent",
+          "file": "../docs/reference/cli/agent.md"
+        },
+        {
+          "title": "Managed Agent",
+          "file": "../docs/reference/cli/managed-agent.md"
+        },
+        {
+          "title": "Prompt",
+          "file": "../docs/reference/cli/prompt.md"
+        },
+        {
+          "title": "Run (Heartbeat)",
+          "file": "../docs/reference/cli/run.md"
+        },
+        {
+          "title": "Routine",
+          "file": "../docs/reference/cli/routine.md"
+        },
+        {
+          "title": "Adapter",
+          "file": "../docs/reference/cli/adapter.md"
+        },
+        {
+          "title": "Connections",
+          "file": "../docs/reference/cli/connections.md"
+        },
+        {
+          "title": "Approval",
+          "file": "../docs/reference/cli/approval.md"
+        },
+        {
+          "title": "Activity",
+          "file": "../docs/reference/cli/activity.md"
+        },
+        {
+          "title": "Dashboard",
+          "file": "../docs/reference/cli/dashboard.md"
+        },
+        {
+          "title": "Cost & Budget",
+          "file": "../docs/reference/cli/cost.md"
+        },
+        {
+          "title": "Workspace",
+          "file": "../docs/reference/cli/workspace.md"
+        },
+        {
+          "title": "Access & Admin",
+          "file": "../docs/reference/cli/access.md"
+        },
+        {
+          "title": "Skills",
+          "file": "../docs/reference/cli/skills.md"
+        },
+        {
+          "title": "Teams",
+          "file": "../docs/reference/cli/teams.md"
+        },
+        {
+          "title": "Secrets",
+          "file": "../docs/reference/cli/secrets.md"
+        },
+        {
+          "title": "Cloud",
+          "file": "../docs/reference/cli/cloud.md"
+        },
+        {
+          "title": "Plugin",
+          "file": "../docs/reference/cli/plugin.md"
+        },
+        {
+          "title": "Asset",
+          "file": "../docs/reference/cli/asset.md"
+        },
+        {
+          "title": "Feedback",
+          "file": "../docs/reference/cli/feedback.md"
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "Skills",
+      "icon": "book-open",
+      "desc": "Skill file shape, install pipeline, scoping, versioning, and troubleshooting.",
+      "pages": [
+        {
+          "title": "Skills Reference",
+          "file": "../docs/reference/skills.md"
+        },
+        {
+          "title": "Bundled",
+          "pages": [
+            {
+              "title": "Overview",
+              "file": "../docs/reference/skills/bundled.md"
+            },
+            {
+              "title": "Docs",
+              "pages": [
+                {
+                  "title": "Doc Maintenance",
+                  "file": "../docs/reference/skills/bundled/docs/doc-maintenance.md"
+                }
+              ]
+            },
+            {
+              "title": "Geetorus Operations",
+              "pages": [
+                {
+                  "title": "Issue Triage",
+                  "file": "../docs/reference/skills/bundled/geetorus-operations/issue-triage.md"
+                },
+                {
+                  "title": "Status Card Query",
+                  "file": "../docs/reference/skills/bundled/geetorus-operations/status-card-query.md"
+                },
+                {
+                  "title": "Task Planning",
+                  "file": "../docs/reference/skills/bundled/geetorus-operations/task-planning.md"
+                }
+              ]
+            },
+            {
+              "title": "Product",
+              "pages": [
+                {
+                  "title": "Wireframe",
+                  "file": "../docs/reference/skills/bundled/product/wireframe.md"
+                }
+              ]
+            },
+            {
+              "title": "Quality",
+              "pages": [
+                {
+                  "title": "QA Acceptance",
+                  "file": "../docs/reference/skills/bundled/quality/qa-acceptance.md"
+                }
+              ]
+            },
+            {
+              "title": "Software Development",
+              "pages": [
+                {
+                  "title": "GitHub PR Workflow",
+                  "file": "../docs/reference/skills/bundled/software-development/github-pr-workflow.md"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Optional",
+          "pages": [
+            {
+              "title": "Overview",
+              "file": "../docs/reference/skills/optional.md"
+            },
+            {
+              "title": "Browser",
+              "pages": [
+                {
+                  "title": "Agent Browser",
+                  "file": "../docs/reference/skills/optional/browser/agent-browser.md"
+                }
+              ]
+            },
+            {
+              "title": "Content",
+              "pages": [
+                {
+                  "title": "Release Announcement",
+                  "file": "../docs/reference/skills/optional/content/release-announcement.md"
+                },
+                {
+                  "title": "Simplified English",
+                  "file": "../docs/reference/skills/optional/content/simplified-english.md"
+                }
+              ]
+            },
+            {
+              "title": "Finance",
+              "pages": [
+                {
+                  "title": "Ramp",
+                  "file": "../docs/reference/skills/optional/finance/ramp.md"
+                }
+              ]
+            },
+            {
+              "title": "Product",
+              "pages": [
+                {
+                  "title": "Design Critique",
+                  "file": "../docs/reference/skills/optional/product/design-critique.md"
+                }
+              ]
+            },
+            {
+              "title": "Research",
+              "pages": [
+                {
+                  "title": "Last30Days",
+                  "file": "../docs/reference/skills/optional/research/last30days.md"
+                }
+              ]
+            },
+            {
+              "title": "Software Development",
+              "pages": [
+                {
+                  "title": "Prepare MCP Integration",
+                  "file": "../docs/reference/skills/optional/software-development/prepare-mcp-integration.md"
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "Adapters",
+      "icon": "plug",
+      "desc": "Connect any agent runtime — Claude, Codex, Gemini, or your own HTTP service.",
+      "pages": [
+        {
+          "title": "Overview",
+          "file": "../docs/reference/adapters/overview.md"
+        },
+        {
+          "title": "Claude Code",
+          "file": "../docs/reference/adapters/claude-code.md"
+        },
+        {
+          "title": "Codex",
+          "file": "../docs/reference/adapters/codex.md"
+        },
+        {
+          "title": "Gemini CLI",
+          "file": "../docs/reference/adapters/gemini-cli.md"
+        },
+        {
+          "title": "Cursor Local",
+          "file": "../docs/reference/adapters/cursor-local.md"
+        },
+        {
+          "title": "Cursor Cloud",
+          "file": "../docs/reference/adapters/cursor-cloud.md"
+        },
+        {
+          "title": "ACPX Local (retired)",
+          "file": "../docs/reference/adapters/acpx-local.md"
+        },
+        {
+          "title": "OpenCode",
+          "file": "../docs/reference/adapters/opencode.md"
+        },
+        {
+          "title": "Pi",
+          "file": "../docs/reference/adapters/pi.md"
+        },
+        {
+          "title": "Hermes",
+          "file": "../docs/reference/adapters/hermes.md"
+        },
+        {
+          "title": "Hermes Gateway",
+          "file": "../docs/reference/adapters/hermes-gateway.md"
+        },
+        {
+          "title": "Grok Local",
+          "file": "../docs/reference/adapters/grok-local.md"
+        },
+        {
+          "title": "Kimi Code",
+          "file": "../docs/reference/adapters/kimi-local.md"
+        },
+        {
+          "title": "OpenClaw Gateway",
+          "file": "../docs/reference/adapters/openclaw-gateway.md"
+        },
+        {
+          "title": "Process",
+          "file": "../docs/reference/adapters/process.md"
+        },
+        {
+          "title": "HTTP",
+          "file": "../docs/reference/adapters/http.md"
+        },
+        {
+          "title": "Sandbox Providers",
+          "file": "../docs/reference/adapters/sandbox-providers.md"
+        },
+        {
+          "title": "Modal",
+          "file": "../docs/reference/adapters/modal.md"
+        },
+        {
+          "title": "External Adapters",
+          "file": "../docs/reference/adapters/external-adapters.md"
+        },
+        {
+          "title": "Creating an Adapter",
+          "file": "../docs/reference/adapters/creating-an-adapter.md"
+        },
+        {
+          "title": "UI Parser Contract",
+          "file": "../docs/reference/adapters/adapter-ui-parser.md"
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "Plugins",
+      "icon": "puzzle",
+      "desc": "Plugin SDK reference for authors building Geetorus plugins.",
+      "pages": [
+        {
+          "title": "Plugin SDK",
+          "file": "../docs/reference/plugins/sdk.md"
+        },
+        {
+          "title": "LLM Wiki",
+          "file": "../docs/reference/plugins/llm-wiki.md"
+        },
+        {
+          "title": "Workspace Diff Viewer",
+          "file": "../docs/reference/plugins/workspace-diff.md"
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "Deployment",
+      "icon": "cloud",
+      "desc": "Run Geetorus on your laptop, in Docker, or on a server — with secrets and Tailscale.",
+      "pages": [
+        {
+          "title": "Overview",
+          "file": "../docs/reference/deploy/overview.md"
+        },
+        {
+          "title": "Deployment Modes",
+          "file": "../docs/reference/deploy/deployment-modes.md"
+        },
+        {
+          "title": "Local Development",
+          "file": "../docs/reference/deploy/local-development.md"
+        },
+        {
+          "title": "Docker",
+          "file": "../docs/reference/deploy/docker.md"
+        },
+        {
+          "title": "Database",
+          "file": "../docs/reference/deploy/database.md"
+        },
+        {
+          "title": "Storage",
+          "file": "../docs/reference/deploy/storage.md"
+        },
+        {
+          "title": "Secrets",
+          "file": "../docs/reference/deploy/secrets.md"
+        },
+        {
+          "title": "Environment Variables",
+          "file": "../docs/reference/deploy/environment-variables.md"
+        },
+        {
+          "title": "Tailscale Private Access",
+          "file": "../docs/reference/deploy/tailscale-private-access.md"
+        },
+        {
+          "title": "Tailscale HTTPS Broker",
+          "file": "../docs/reference/deploy/tailscale-https-broker.md"
+        }
+      ]
+    },
+    {
+      "tier": "Reference",
+      "title": "Changelog",
+      "icon": "history",
+      "desc": "What changed in these docs — pages added, rewritten, or expanded — with each documentation update.",
+      "pages": [
+        {
+          "title": "Docs",
+          "file": "../docs/reference/changelog.md"
+        }
+      ]
+    }
+  ]
+}

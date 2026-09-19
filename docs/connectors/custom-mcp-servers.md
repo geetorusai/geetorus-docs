@@ -1,0 +1,66 @@
+---
+seo_title: Connect a Custom MCP Server
+seo_description: Add an MCP server that is not in the Geetorus catalog by URL, by pasting a config, or with a provider-generated URL, and govern it like any connector.
+---
+
+# Connect a custom MCP server
+
+The catalog covers the providers Geetorus has reviewed. For anything else — a server you run, a provider that is not listed, or a URL a provider generated for you — there are three entry points on the **Connectors** page.
+
+## Connect your own MCP server
+
+*"Enter the URL for a custom or self-hosted MCP server."*
+
+Select **Connect your own MCP server**, paste the full `http` or `https` address, and let Geetorus work out what the server needs: *"Geetorus asks the server what it needs and walks you through it. Start here."*
+
+What happens next depends on the server:
+
+- **It advertises OAuth.** Geetorus registers a client and takes you through browser sign-in. If the authorization server supports neither Client ID Metadata Documents nor dynamic registration, Geetorus stops and asks you for a client you registered yourself rather than losing the draft connection.
+- **It wants a key.** Geetorus asks for it, and states where it goes: *"Geetorus sends your key as an Authorization header."* Custom headers are available for servers that expect something else.
+- **It wants nothing.** Geetorus says so plainly: *"The server is open to anyone with the address."* Treat that address as the credential.
+
+A server outside the reviewed catalog is labelled **Unverified server**. That label is a statement about review, not about whether the connection works.
+
+## Paste a config
+
+*"Paste an existing setup snippet and connect it."*
+
+If you already have a working MCP client configuration — from another tool, a provider's quickstart, a teammate — **Paste a config** reads the server URL and credential shape out of it instead of making you retype them. Geetorus validates the result before saving.
+
+## Paste a provider-generated URL
+
+Some providers hand you a single URL with the token already embedded. Zapier is the catalog entry for this shape: *"Paste the complete MCP URL Zapier gives you, including its token."*
+
+The URL is a secret. Anyone holding it holds the access. Geetorus stores it as one, and the connection's action permissions apply the same way they do to any other connector.
+
+## The two generic definitions behind this
+
+Geetorus has two catalog entries that exist to back the generic paths rather than to be browsed:
+
+| Definition | Slug | Shape |
+| --- | --- | --- |
+| **OAuth app** | `oauth-generic` | *"Connect a provider using your own OAuth client."* You supply a client ID and client secret; dynamic registration is used when the provider supports it. |
+| **API key app** | `api-key-generic` | *"Connect an API using a key from your provider."* You supply a key, which Geetorus presents on each call. |
+
+Neither appears in the **Connectors** list. They are reached through the generic entry points above.
+
+## Governance is identical
+
+A custom server is not a lesser citizen. The same four gates apply: the connection, the identity, agent access, and per-action permission. The action list is read from the server you pointed at, classified read, write, or destructive, and each entry set to **Allowed**, **Ask first**, or **Off**.
+
+Because the server has not been reviewed, two habits are worth keeping:
+
+- Start with every write **Off** and promote deliberately. A name-based classification is the fallback when a server publishes no annotations, and an unfamiliar naming scheme can under-classify.
+- Re-run **Refresh actions** after you change the server, then review the list. On a pasted-URL connection a newly discovered action becomes active under the policies already in force — it is not held back for approval — so a refresh can widen what agents can call.
+
+## Not the same as an adapter MCP server
+
+Attaching an MCP server to an agent's *runtime* — through the adapter's own configuration — is a different mechanism with different governance. Geetorus's action permissions and review queue do not sit in front of it. See [Add an MCP server to an agent](../how-to/add-mcp-server-to-agent.md) for that path, and pick it deliberately rather than by accident.
+
+## Related
+
+- [Connectors](../connectors.md)
+- [How connector access works](access-model.md)
+- [Set action permissions](action-permissions.md)
+- [Zapier](zapier.md)
+- [Tool Gateway](../reference/api/tool-gateway.md)

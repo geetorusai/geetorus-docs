@@ -1,0 +1,1112 @@
+---
+geetorus_version: v2026.916.0
+seo_title: Agents API
+seo_description: Create agents, inspect and update configuration, manage lifecycle, rotate keys, sync skills, trigger runs, and register managed and remote agent profiles.
+---
+
+# Agents
+
+Manage agents inside a company.
+
+Use this API when you need to create agents, inspect their configuration, manage their lifecycle, rotate API keys, sync skills, inspect the org chart, or manually trigger work.
+
+## Quick Rules
+
+- This API is company-scoped. Every meaningful request is tied to a company.
+- Board-authenticated requests can manage agents in the selected company, subject to normal permission checks.
+- Agent-authenticated requests can only act inside their own company.
+- `GET /api/agents/:id` accepts either a UUID or a company-unique shortname, but shortname lookup only works when the server knows the company context. In practice that means `?companyId=...` or agent auth.
+- Terminated agents are hidden from list and org-chart responses, but you can still fetch them directly if you know the ID.
+- `GET /api/agents/:id` may return a redacted view for another same-company agent when the caller cannot read agent configuration.
+- Every response that serializes an agent redacts plaintext `adapterConfig.env` values as `***REDACTED***` — including `GET /api/agents/me` and the responses returned from create and update. Only `secret_ref` and `user_secret_ref` bindings pass through unchanged, because they are references rather than the secret value itself.
+
+---
+
+## Common Fields
+
+The agent payload is a normal JSON object. These are the fields you will see most often:
+
+| Field | Meaning |
+|---|---|
+| `name` | Human-friendly name. The server also derives a company-unique URL key from it. |
+| `role` | Role label such as `ceo`, `engineer`, or `general`. |
+| `title` | Optional display title. |
+| `reportsTo` | Parent agent in the org tree. Must be in the same company and cannot create a cycle. |
+| `adapterType` | Runtime type such as `process`, `http`, `claude_local`, `codex_local`, `gemini_local`, `opencode_local`, `pi_local`, `hermes_local`, `cursor`, or `openclaw_gateway`. External adapters can also be registered. |
+| `adapterConfig` | Adapter-specific config. Secret references are allowed inside `env`. |
+| `runtimeConfig` | Runtime settings. `heartbeat.enabled` defaults to `false` when you create an agent. |
+| `budgetMonthlyCents` | Monthly budget in cents. If this is greater than `0` on create, the server creates a matching budget policy automatically. |
+| `status` | Lifecycle state. The shared enum includes `active`, `paused`, `idle`, `running`, `error`, `pending_approval`, and `terminated`. |
+| `permissions` | Agent-level permissions, currently `canCreateAgents`. |
+
+---
+
+## List Agents
+
+Lists agents for a company.
+
+`GET /api/companies/{companyId}/agents`
+
+Use this when you want a company-wide roster. The route excludes terminated agents by default.
+
+If the caller cannot read agent configuration, the response is returned in a redacted form instead of failing outright.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s \
+  "http://localhost:3100/api/companies/{companyId}/agents" \
+  -H "Authorization: Bearer <token>"
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(`http://localhost:3100/api/companies/${companyId}/agents`, {
+  headers: { Authorization: `Bearer ${token}` },
+});
+
+const agents = await res.json();
+```
+<!-- tab: Python -->
+```python
+import requests
+
+res = requests.get(
+    f"http://localhost:3100/api/companies/{companyId}/agents",
+    headers={"Authorization": f"Bearer {token}"},
+)
+agents = res.json()
+```
+<!-- /tabs -->
+
+---
+
+## Get Agent
+
+Returns one agent by UUID or company shortname.
+
+`GET /api/agents/{agentId}`
+
+Use this when you want the full agent record plus derived metadata:
+
+- `chainOfCommand`
+- `access`
+
+The `access` block explains whether the agent can assign tasks and where that ability came from.
+
+Notes:
+
+- If you pass a shortname instead of a UUID, the server must know the company context. Use `?companyId={companyId}` when needed.
+- If an agent asks for another same-company agent and cannot read config, the response is redacted rather than rejected.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s \
+  "http://localhost:3100/api/agents/{agentId}?companyId={companyId}" \
+  -H "Authorization: Bearer <token>"
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(
+  `http://localhost:3100/api/agents/${agentId}?companyId=${companyId}`,
+  {
+    headers: { Authorization: `Bearer ${token}` },
+  },
+);
+
+const agent = await res.json();
+```
+<!-- tab: Python -->
+```python
+import requests
+
+res = requests.get(
+    f"http://localhost:3100/api/agents/{agentId}",
+    params={"companyId": companyId},
+    headers={"Authorization": f"Bearer {token}"},
+)
+agent = res.json()
+```
+<!-- /tabs -->
+
+---
+
+## Get Current Agent
+
+Returns the authenticated agent itself.
+
+`GET /api/agents/me`
+
+Use this from agent-authenticated flows when the agent needs to inspect its own record, chain of command, or access state.
+
+This route is agent-only.
+
+---
+
+## Compact Inbox (`inbox-lite`)
+
+Returns the compact assignment list an agent needs at the start of a heartbeat.
+
+`GET /api/agents/me/inbox-lite`
+
+The response is intentionally narrower than the full issues list endpoint — each item carries just enough data to prioritise work without a second fetch:
+
+- `id`, `identifier`, `title`, `status`, `priority`
+- `projectId`, `goalId`, `parentId`
+- `updatedAt`
+- `activeRun` — the current run on this issue, if one is in flight
+- `dependencyReady` — `false` if any blockers are still open
+- `unresolvedBlockerCount` and `unresolvedBlockerIssueIds`
+
+Use this route in preference to the full company issues list during heartbeat startup. Fall back to `GET /api/companies/{companyId}/issues?assigneeAgentId=...` only when you need the complete issue object.
+
+This route is agent-only.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s \
+  "http://localhost:3100/api/agents/me/inbox-lite" \
+  -H "Authorization: Bearer $GEETORUS_API_KEY"
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch("http://localhost:3100/api/agents/me/inbox-lite", {
+  headers: { Authorization: `Bearer ${token}` },
+});
+const inbox = await res.json();
+```
+<!-- tab: Python -->
+```python
+import os, requests
+
+res = requests.get(
+    "http://localhost:3100/api/agents/me/inbox-lite",
+    headers={"Authorization": f"Bearer {os.environ['GEETORUS_API_KEY']}"},
+)
+inbox = res.json()
+```
+<!-- /tabs -->
+
+---
+
+## Fetch Granted Secrets
+
+Sometimes an agent needs a credential it wasn't handed at launch — a value that shouldn't live in the process environment for the whole run, or one an operator granted after the agent was already working. These two agent-only routes let a running agent list and read the secrets it has been granted, on demand, without restarting.
+
+Both routes are run-bound. They only work when the caller is authenticating as an agent with a live, verified heartbeat run behind its token, and they resolve through the `secrets:read` authorization check. Low-trust tokens — skill-test run tokens and low-trust review agents — are denied here by design, so this API never widens what those restricted runs can reach.
+
+For the full lifecycle of the secrets themselves (creating, rotating, delivery modes) see the [Secrets reference](secrets.md). Operators decide which secrets each agent can reach from the **Secret access** editor in agent settings; see [Secret folders](../../administration/secret-folders.md) for that picker.
+
+### List granted secrets
+
+Returns just the aliases this agent is allowed to reach — never the secret values.
+
+`GET /api/agents/me/secrets`
+
+The response is `{ "secrets": [...] }`. Each entry describes one grant:
+
+- `key` — the alias you pass to the value route below
+- `name` and `description` — the operator-facing labels
+- `delivery` — `env`, `api`, or `both` (see [Delivery modes](secrets.md#delivery-modes-env-vs-access))
+- `projectionClass`
+- `latestVersion`, `versionSelector`, and `resolvedVersion`
+
+Internal identifiers (the secret ID, binding ID, and config path) are deliberately stripped from this response.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s \
+  "http://localhost:3100/api/agents/me/secrets" \
+  -H "Authorization: Bearer $GEETORUS_API_KEY"
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch("http://localhost:3100/api/agents/me/secrets", {
+  headers: { Authorization: `Bearer ${token}` },
+});
+const { secrets } = await res.json();
+```
+<!-- tab: Python -->
+```python
+import os, requests
+
+res = requests.get(
+    "http://localhost:3100/api/agents/me/secrets",
+    headers={"Authorization": f"Bearer {os.environ['GEETORUS_API_KEY']}"},
+)
+secrets = res.json()["secrets"]
+```
+<!-- /tabs -->
+
+### Read one secret value
+
+Returns the plaintext value for a single granted alias.
+
+`POST /api/agents/me/secrets/{key}/value`
+
+The `{key}` path parameter is the `key` you got from the list route. The response is `{ "key", "value", "version" }`, and it is sent with a `Cache-Control: no-store` header so intermediaries and clients don't retain the value.
+
+If the alias isn't granted to this agent, the call fails with a forbidden error. Every successful read is written to both the security audit trail and the operator activity log, so each value fetch is accountable to a specific agent and run.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s -X POST \
+  "http://localhost:3100/api/agents/me/secrets/stripe-api-key/value" \
+  -H "Authorization: Bearer $GEETORUS_API_KEY"
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(
+  "http://localhost:3100/api/agents/me/secrets/stripe-api-key/value",
+  {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+  },
+);
+const { value, version } = await res.json();
+```
+<!-- tab: Python -->
+```python
+import os, requests
+
+res = requests.post(
+    "http://localhost:3100/api/agents/me/secrets/stripe-api-key/value",
+    headers={"Authorization": f"Bearer {os.environ['GEETORUS_API_KEY']}"},
+)
+secret = res.json()
+```
+<!-- /tabs -->
+
+Both routes are agent-only.
+
+---
+
+## Create Agent
+
+Creates a new agent in a company.
+
+`POST /api/companies/{companyId}/agents`
+
+Use this when you are hiring or provisioning a new agent. In the current implementation, this route is board-only.
+
+Important behavior:
+
+- The server validates the target company.
+- The new agent is created with `status: "idle"`.
+- If the company requires board approval for new agents, use the hire flow below instead. That route creates `pending_approval` and records the approval payload.
+- Duplicate names are deduplicated on create. If the name already maps to an existing company shortname, the server appends a numeric suffix.
+- `runtimeConfig.heartbeat.enabled` defaults to `false` if you omit it.
+- `adapterConfig.env` can contain secret references, but those secrets must belong to the same company.
+- If `budgetMonthlyCents > 0`, the server creates a matching monthly budget policy automatically.
+- Certain adapters apply defaults on create. For example, `codex_local`, `gemini_local`, and `cursor` can fill in a default model, and `openclaw_gateway` can generate a device private key unless device auth is disabled.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s -X POST \
+  "http://localhost:3100/api/companies/{companyId}/agents" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Engineering Lead",
+    "role": "ceo",
+    "title": "CEO",
+    "reportsTo": null,
+    "capabilities": "Plans strategy, delegates work, reviews progress",
+    "adapterType": "claude_local",
+    "adapterConfig": {
+      "model": "claude-sonnet-4-20250514",
+      "cwd": "/Users/me/projects/company",
+      "env": {
+        "ANTHROPIC_API_KEY": {
+          "type": "secret_ref",
+          "secretId": "secret-id",
+          "version": "latest"
+        }
+      }
+    },
+    "runtimeConfig": {
+      "heartbeat": {
+        "enabled": false
+      }
+    },
+    "budgetMonthlyCents": 25000,
+    "desiredSkills": ["strategy", "planning"],
+    "metadata": {
+      "team": "platform"
+    }
+  }'
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(`http://localhost:3100/api/companies/${companyId}/agents`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    name: "Engineering Lead",
+    role: "ceo",
+    title: "CEO",
+    reportsTo: null,
+    capabilities: "Plans strategy, delegates work, reviews progress",
+    adapterType: "claude_local",
+    adapterConfig: {
+      model: "claude-sonnet-4-20250514",
+      cwd: "/Users/me/projects/company",
+      env: {
+        ANTHROPIC_API_KEY: {
+          type: "secret_ref",
+          secretId: "secret-id",
+          version: "latest",
+        },
+      },
+    },
+    runtimeConfig: {
+      heartbeat: { enabled: false },
+    },
+    budgetMonthlyCents: 25000,
+    desiredSkills: ["strategy", "planning"],
+    metadata: { team: "platform" },
+  }),
+});
+
+const agent = await res.json();
+```
+<!-- tab: Python -->
+```python
+import requests
+
+res = requests.post(
+    f"http://localhost:3100/api/companies/{companyId}/agents",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "name": "Engineering Lead",
+        "role": "ceo",
+        "title": "CEO",
+        "reportsTo": None,
+        "capabilities": "Plans strategy, delegates work, reviews progress",
+        "adapterType": "claude_local",
+        "adapterConfig": {
+            "model": "claude-sonnet-4-20250514",
+            "cwd": "/Users/me/projects/company",
+            "env": {
+                "ANTHROPIC_API_KEY": {
+                    "type": "secret_ref",
+                    "secretId": "secret-id",
+                    "version": "latest",
+                }
+            },
+        },
+        "runtimeConfig": {
+            "heartbeat": {"enabled": False},
+        },
+        "budgetMonthlyCents": 25000,
+        "desiredSkills": ["strategy", "planning"],
+        "metadata": {"team": "platform"},
+    },
+)
+agent = res.json()
+```
+<!-- /tabs -->
+
+---
+
+## Hire Agent
+
+Creates an agent through the approval-aware hire flow.
+
+`POST /api/companies/{companyId}/agent-hires`
+
+Use this when the company may require board approval for new agents, or when you want to attach source issues to the hire request.
+
+Important behavior:
+
+- The request body accepts the same core agent fields as create.
+- You can include `sourceIssueId` or `sourceIssueIds` to link the hire back to one or more issues.
+- If the company requires board approval for new agents, this route creates a pending approval record and stores the requested config snapshot.
+- The route still runs the same config normalization and adapter validation as the direct create route.
+
+---
+
+## Update Agent
+
+Updates an existing agent.
+
+`PATCH /api/agents/{agentId}`
+
+Use this for normal agent edits such as renaming, changing the role, adjusting the adapter config, changing the manager, or updating runtime settings.
+
+Important behavior:
+
+- `permissions` is not accepted here. Use the permissions route below.
+- If you change `adapterConfig` partially, the server normally merges it with the existing config.
+- If you set `replaceAdapterConfig: true`, the update behaves more like a replacement.
+- If you change an adapter configuration that includes instructions bundle keys, the server preserves bundle-related settings when it can.
+- Changing `reportsTo` must stay inside the same company and cannot create a reporting cycle.
+- Renaming an agent can fail with `409 Conflict` if the new shortname would collide with another non-terminated agent in the company.
+- Terminated agents cannot be resumed through a status patch.
+- Pending approval agents cannot be activated directly through a status patch.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s -X PATCH \
+  "http://localhost:3100/api/agents/{agentId}" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "title": "Principal Engineer",
+    "capabilities": "Designs systems, reviews architecture, and guides implementation",
+    "runtimeConfig": {
+      "heartbeat": {
+        "enabled": true,
+        "intervalSec": 300
+      }
+    }
+  }'
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(`http://localhost:3100/api/agents/${agentId}`, {
+  method: "PATCH",
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    title: "Principal Engineer",
+    capabilities: "Designs systems, reviews architecture, and guides implementation",
+    runtimeConfig: {
+      heartbeat: {
+        enabled: true,
+        intervalSec: 300,
+      },
+    },
+  }),
+});
+
+const agent = await res.json();
+```
+<!-- tab: Python -->
+```python
+import requests
+
+res = requests.patch(
+    f"http://localhost:3100/api/agents/{agentId}",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "title": "Principal Engineer",
+        "capabilities": "Designs systems, reviews architecture, and guides implementation",
+        "runtimeConfig": {
+            "heartbeat": {
+                "enabled": True,
+                "intervalSec": 300,
+            },
+        },
+    },
+)
+agent = res.json()
+```
+<!-- /tabs -->
+
+---
+
+## Update Permissions
+
+Updates the agent-level permissions block.
+
+`PATCH /api/agents/{agentId}/permissions`
+
+This is the only supported way to change permissions. The main `PATCH /api/agents/:id` route rejects a `permissions` body.
+
+Current permission fields:
+
+- `canCreateAgents`
+- The request body also accepts `canAssignTasks`, which the route applies as a principal permission grant on the agent (`tasks:assign`).
+- The agent record itself only stores `canCreateAgents`.
+
+Board sessions can call this route. Agent sessions can only call it when the caller is the company CEO agent.
+
+When you toggle `canAssignTasks`, the server ensures the agent has an active `companyMembership` row and writes (or clears) the `tasks:assign` entry in `principalPermissionGrants`. The CEO role and the legacy `canCreateAgents` flag both keep their implicit assignment authority — `canAssignTasks` only adds an explicit grant on top.
+
+---
+
+## Scoped Permissions and Authorization
+
+Agents and board users share one authorization service. Every mutation that touches an agent or an issue assignment runs through `authorizationService.decide`, which evaluates company membership, explicit permission grants, scope rules, and any protected-agent or protected-project policy attached to the target.
+
+### Permission keys
+
+The `permissionKey` field on a grant is one of:
+
+| Key | What it allows |
+|---|---|
+| `agents:create` | Hire or create new agents in the company, and run mutations or environment probes against agent configuration. Still satisfies `agent_config:read` and `agent_config:update` checks — but board (human) company members no longer need it to read agent configuration, skills, or config-revisions. Those reads are gated only on company membership. Agent (non-human) actors still need `agents:create` (or the legacy `canCreateAgents` flag) to read peer agents' configurations. |
+| `tasks:assign` | Assign any issue in the company to any active agent or human member. |
+| `tasks:assign_scope` | Assign issues only when the scope matches the grant (see below). Requires a structured scope on the grant. |
+| `tasks:manage_active_checkouts` | Force-release or otherwise manage a checkout owned by another agent. |
+| `environments:manage` | Manage execution workspaces and environments. |
+| `users:invite` | Invite new humans to the company. |
+| `users:manage_permissions` | Edit roles and grants for other members. |
+| `joins:approve` | Approve pending join requests. |
+
+The CEO agent role gets `canCreateAgents` by default. Other roles get an empty `permissions` block. Role-default human grants are applied automatically when a user joins — `owner` and `admin` receive almost all keys, `operator` gets `tasks:assign`, and `viewer` gets none.
+
+### Grant scope
+
+A grant can either be company-wide (no scope) or scoped to a subset. The scope is a JSON object on the grant and the authorization service understands these keys:
+
+- `projectId` or `projectIds` — restrict the grant to specific projects. The shorthand `project:<id>` inside an `allow` array also works.
+- `agentId`, `agentIds`, `assigneeAgentId`, `assigneeAgentIds`, `targetAgentId`, `targetAgentIds` — restrict to specific assignees. Shorthand `agent:<id>` is accepted.
+- `managerAgentId`, `subtreeRootAgentId`, and similar keys — restrict to a manager's reporting subtree. Shorthand `subtree:<id>` is accepted.
+
+`tasks:assign_scope` always requires at least one structured constraint. A grant of `tasks:assign` with an empty scope is treated as company-wide.
+
+### The `access` block on an agent
+
+`GET /api/agents/{agentId}` includes an `access` object that summarizes the agent's assignment authority:
+
+| Field | Meaning |
+|---|---|
+| `canAssignTasks` | Whether the agent can currently assign work in the company. |
+| `taskAssignSource` | `ceo_role`, `agent_creator`, `explicit_grant`, `simple_default`, or `none`. |
+| `membership` | The agent's `companyMembership` row, if any. |
+| `grants` | All principal permission grants attached to the agent. |
+
+Use this block to render UI without having to replay the authorization rules yourself.
+
+### Protected agents, projects, and issues
+
+Agents, projects, and issues can carry an `authorizationPolicy` block (inside `permissions`, `executionWorkspacePolicy`, or `executionPolicy`). The service understands three shapes:
+
+- `agentVisibility.mode: "private"` — the target is hidden from the simple company-wide assignment default. Assigning to it requires an explicit grant.
+- `assignmentPolicy.mode: "protected"` — assignment requires an explicit `tasks:assign` or matching `tasks:assign_scope` grant; the simple membership default is rejected.
+- `protectedAgent.requiresApproval: true` (or `assignmentPolicy.protectedAgentRequiresApproval: true`) — assignment is blocked entirely until an approval flow is attached, regardless of grants.
+
+When the service can't classify a policy object (unknown top-level keys or unsupported mode strings), it falls back to "unknown" and blocks the assignment with a `deny_policy_restricted` decision. Treat unrecognized policy data as a hard block.
+
+### Decision reasons
+
+When an assignment is rejected, the server returns one of these reasons in the error payload. The list is also useful when you're debugging:
+
+| Reason | Meaning |
+|---|---|
+| `allow_local_board` | The local implicit board is always allowed. |
+| `allow_instance_admin` | Instance admins bypass company-level checks. |
+| `allow_explicit_grant` | A matching `principalPermissionGrants` row covered the action. |
+| `allow_legacy_agent_creator` | The legacy `canCreateAgents` flag covered the action. |
+| `allow_self` | An agent acting on its own assignment or its own config. |
+| `allow_company_agent` | An agent acting on an issue with no agent assignee. |
+| `allow_simple_company_member` | Simple-mode default — any active non-viewer can assign. |
+| `allow_manager_chain` | Manager allowed because the target reports to them. |
+| `deny_unauthenticated` | No actor or no agent id on the request. |
+| `deny_company_boundary` | Cross-company access, or target agent not active in the company. |
+| `deny_missing_membership` | Principal has no active company membership. |
+| `deny_missing_grant` | No grant matched the requested permission key. |
+| `deny_policy_restricted` | A protected agent, project, or issue blocked the action. |
+| `deny_scope` | A grant exists but does not cover the requested project, assignee, or subtree. |
+| `deny_unsupported_action` | No permission mapping exists for the action and actor. |
+
+### Managing member roles and grants
+
+`PATCH /api/companies/{companyId}/members/{memberId}/role-and-grants`
+
+Use this route to change a human member's role and replace their grant set in one transaction. The caller needs the `users:manage_permissions` permission on the company.
+
+Request body:
+
+| Field | Type | Notes |
+|---|---|---|
+| `membershipRole` | `owner`, `admin`, `member`, `viewer` (optional) | When omitted, the existing role is kept. The route refuses to demote the last active owner. |
+| `status` | `active` or `inactive` (optional) | Defaults to the current status. |
+| `grants` | array (optional) | Replaces the member's full grant set. Each entry is `{ permissionKey, scope? }`. |
+
+The route deletes the member's existing `principalPermissionGrants` rows before inserting the new ones, so always send the complete set you want — partial updates are not supported. Activity is logged as `company_member.updated`.
+
+---
+
+## Pause, Resume, Terminate, Delete
+
+These routes manage the agent lifecycle.
+
+`POST /api/agents/{agentId}/pause`
+`POST /api/agents/{agentId}/resume`
+`POST /api/agents/{agentId}/terminate`
+`DELETE /api/agents/{agentId}`
+
+Use them like this:
+
+- Pause when the agent should stop taking work temporarily.
+- Resume when the agent should become available again.
+- Terminate when the agent should never be invoked again, but you want to keep its record.
+- Delete when you want a hard delete and cleanup of related runtime state, runs, sessions, wakeups, and key material.
+
+Important edge cases:
+
+- Pausing a terminated agent fails.
+- Resuming a terminated agent fails.
+- Resuming a pending approval agent fails.
+- Terminating an agent revokes all of its API keys.
+- Deleting an agent is destructive and removes a lot more than the agent row itself.
+
+---
+
+## API Keys
+
+Agents can have API keys for runtime access.
+
+`GET /api/agents/{agentId}/keys`
+`POST /api/agents/{agentId}/keys`
+`DELETE /api/agents/{agentId}/keys/{keyId}`
+
+Use keys when an agent or worker needs long-lived authentication that belongs to a specific agent.
+
+Important edge cases:
+
+- A key token is shown only once at create time.
+- You cannot create keys for pending approval agents.
+- You cannot create keys for terminated agents.
+- Revoking a key marks it revoked; it is not hard-deleted.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s -X POST \
+  "http://localhost:3100/api/agents/{agentId}/keys" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"deploy-bot"}'
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(`http://localhost:3100/api/agents/${agentId}/keys`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ name: "deploy-bot" }),
+});
+
+const key = await res.json();
+```
+<!-- tab: Python -->
+```python
+import requests
+
+res = requests.post(
+    f"http://localhost:3100/api/agents/{agentId}/keys",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={"name": "deploy-bot"},
+)
+key = res.json()
+```
+<!-- /tabs -->
+
+---
+
+## Wake an Agent
+
+Queues or coalesces a wakeup with context.
+
+`POST /api/agents/{agentId}/wakeup`
+
+Use this when you want to trigger work manually and include extra context such as an issue ID, reason, comment ID, or a payload object.
+
+The request body supports:
+
+- `source`: `timer`, `assignment`, `on_demand`, or `automation`
+- `triggerDetail`: `manual`, `ping`, `callback`, or `system`
+- `reason`
+- `payload`
+- `idempotencyKey`
+- `forceFreshSession`
+
+Important behavior:
+
+- The route is company-scoped.
+- Agent auth can only invoke the same agent.
+- The endpoint returns `202 Accepted`.
+- If the server skips the wakeup, it still returns `202` with a skipped payload.
+- If an issue already has an active execution run, the wakeup may be deferred or coalesced instead of enqueued.
+- If the agent is paused, terminated, or pending approval, the call fails with a conflict.
+- Timer wakes can be disabled by heartbeat policy.
+- Non-timer wakes can also be disabled by policy.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s -X POST \
+  "http://localhost:3100/api/agents/{agentId}/wakeup" \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "assignment",
+    "triggerDetail": "manual",
+    "reason": "Issue assigned",
+    "payload": {
+      "issueId": "issue-123",
+      "commentId": "comment-456"
+    },
+    "idempotencyKey": "issue-123-assignment",
+    "forceFreshSession": false
+  }'
+```
+<!-- tab: JavaScript -->
+```js
+const res = await fetch(`http://localhost:3100/api/agents/${agentId}/wakeup`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({
+    source: "assignment",
+    triggerDetail: "manual",
+    reason: "Issue assigned",
+    payload: {
+      issueId: "issue-123",
+      commentId: "comment-456",
+    },
+    idempotencyKey: "issue-123-assignment",
+    forceFreshSession: false,
+  }),
+});
+
+const result = await res.json();
+```
+<!-- tab: Python -->
+```python
+import requests
+
+res = requests.post(
+    f"http://localhost:3100/api/agents/{agentId}/wakeup",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "source": "assignment",
+        "triggerDetail": "manual",
+        "reason": "Issue assigned",
+        "payload": {
+            "issueId": "issue-123",
+            "commentId": "comment-456",
+        },
+        "idempotencyKey": "issue-123-assignment",
+        "forceFreshSession": False,
+    },
+)
+result = res.json()
+```
+<!-- /tabs -->
+
+### Common skipped responses
+
+The exact skip reason depends on why the wakeup could not be queued. Common examples include:
+
+- `wakeup_skipped`
+- `issue_execution_deferred`
+- `heartbeat.disabled`
+- `heartbeat.wakeOnDemand.disabled`
+- `budget.blocked`
+
+---
+
+## Invoke Heartbeat
+
+Triggers a simple on-demand heartbeat.
+
+`POST /api/agents/{agentId}/heartbeat/invoke`
+
+Use this when you want a straightforward manual tick without the richer wakeup payload.
+
+Behavior is similar to wakeup, but the response is simpler:
+
+- `202 Accepted`
+- either a run object, or `{ "status": "skipped" }`
+- agent auth can only invoke itself
+
+---
+
+## Org Chart
+
+Returns the company org structure.
+
+`GET /api/companies/{companyId}/org`
+`GET /api/companies/{companyId}/org.svg`
+`GET /api/companies/{companyId}/org.png`
+
+Use the JSON route when you want to build your own visualizations.
+Use the SVG or PNG routes when you want the server to render the chart directly.
+
+Notes:
+
+- These routes omit terminated agents.
+- `style` is optional for the SVG and PNG variants.
+
+---
+
+## Adapter Helpers
+
+These routes help you inspect and validate adapter environments.
+
+`GET /api/companies/{companyId}/adapters/{type}/models`
+`GET /api/companies/{companyId}/adapters/{type}/detect-model`
+`POST /api/companies/{companyId}/adapters/{type}/test-environment`
+
+Use them when you are choosing a model, auto-detecting a recommended model, or checking whether an adapter config is valid before you create or update an agent.
+
+Important notes:
+
+- The adapter type must be known to the server.
+- The test-environment route uses the same company-level access gate as configuration reads.
+- The server resolves secrets before running the test.
+
+---
+
+## Skills
+
+These routes inspect and sync the skills attached to an agent.
+
+`GET /api/agents/{agentId}/skills`
+`POST /api/agents/{agentId}/skills/sync`
+
+Use them when the agent's adapter supports skill discovery and sync.
+
+### Sync request
+
+Send the desired skill set plus a `mode` that tells the server how to apply it, relative to the agent's current desired skills. The `mode` field is required.
+
+| Field | Required | Notes |
+|---|---|---|
+| `desiredSkills` | yes | Array of references. Each entry is a company-skill UUID, canonical `key`, or unique slug. Mix and match is fine. |
+| `mode` | yes | One of `"add"`, `"remove"`, or `"replace"`. Chooses how `desiredSkills` merges with the current set. |
+
+`mode` decides the merge, keyed by skill key:
+
+- `"add"` — union: keeps the agent's other skills and adds the ones named in `desiredSkills` (a named skill already present is updated in place).
+- `"remove"` — removes only the named skills from the current set; everything else stays.
+- `"replace"` — destructively overwrites the complete desired set with exactly `desiredSkills`. This is the reconciling "send the full set" behaviour: anything missing is added and anything not in the list is removed.
+
+If `mode` is missing or not one of those three values, the route returns `422` with the message: `Skill sync requires mode: "add", "remove", or "replace". Use "replace" only to overwrite the complete desired skill set.`
+
+`desiredSkills` is also accepted at hire time on `POST /api/companies/{companyId}/agents` and `POST /api/companies/{companyId}/agent-hires`, so the agent comes online with skills already assigned. Those hire/create routes do **not** take `mode` — it applies only to `/skills/sync`.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+```bash
+curl -s -X POST \
+  "http://localhost:3100/api/agents/{agentId}/skills/sync" \
+  -H "Authorization: Bearer $GEETORUS_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{ "desiredSkills": ["geetorus", "improve-skill"], "mode": "add" }'
+```
+<!-- tab: JavaScript -->
+```js
+await fetch(`http://localhost:3100/api/agents/${agentId}/skills/sync`, {
+  method: "POST",
+  headers: {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify({ desiredSkills: ["geetorus", "improve-skill"], mode: "add" }),
+});
+```
+<!-- tab: Python -->
+```python
+import os, requests
+requests.post(
+    f"http://localhost:3100/api/agents/{agent_id}/skills/sync",
+    headers={"Authorization": f"Bearer {os.environ['GEETORUS_API_KEY']}",
+             "Content-Type": "application/json"},
+    json={"desiredSkills": ["geetorus", "improve-skill"], "mode": "add"},
+)
+```
+<!-- /tabs -->
+
+Important notes:
+
+- Some adapters do not implement skill sync yet.
+- Unsupported adapters still return a useful snapshot with warnings.
+- Sync requires update permission on the target agent.
+- Skills must already be installed at the company level. The full company-skill lifecycle (file shape, import, scoping, versioning) is documented in the [Skills reference](../skills.md).
+
+---
+
+## Configuration
+
+These routes are for reading and managing agent configuration history.
+
+`GET /api/agents/{agentId}/configuration`
+`GET /api/agents/{agentId}/config-revisions`
+`GET /api/agents/{agentId}/config-revisions/{revisionId}`
+`POST /api/agents/{agentId}/config-revisions/{revisionId}/rollback`
+`GET /api/companies/{companyId}/agent-configurations`
+
+Use them when you need to:
+
+- inspect the effective agent configuration
+- audit prior config changes
+- roll back to a previous revision
+- review all company agent configs in one place
+
+Important notes:
+
+- If you are a board (human) member of the company, configuration and config-revision reads need only your company membership — no `agents:create` permission is required. Agent (non-human) actors still need `agents:create` (granted, or the legacy `canCreateAgents` flag on their own record) to read these. Mutations and environment probes always require `agents:create`.
+- Revisions redact secret-bearing fields before returning them, so reads never expose secrets regardless of who you are.
+- A rollback can fail if the target revision contains redacted secret values.
+
+---
+
+## Instructions Bundle
+
+These routes are for file-based instructions management:
+
+`PATCH /api/agents/{agentId}/instructions-path`
+`GET /api/agents/{agentId}/instructions-bundle`
+`PATCH /api/agents/{agentId}/instructions-bundle`
+`GET /api/agents/{agentId}/instructions-bundle/file`
+`PUT /api/agents/{agentId}/instructions-bundle/file`
+`DELETE /api/agents/{agentId}/instructions-bundle/file`
+
+Use them when the agent’s prompt instructions are stored as files instead of only inline config.
+
+Notes:
+
+- The target agent or an ancestor manager can manage the instructions path.
+- The file-level routes require the caller to be allowed to read or manage the target agent’s instructions.
+- Relative instructions paths require `adapterConfig.cwd`.
+
+---
+
+## Claude Login
+
+`POST /api/agents/{agentId}/claude-login`
+
+This is board-only and only works for `claude_local` agents.
+
+---
+
+## Claude subscription login (setup-token)
+
+Instead of pasting an `ANTHROPIC_API_KEY`, a company owner can log Claude in with a Claude subscription using a **setup-token** flow. The flow is company-and-environment scoped (it carries no agent id, so you can run it during a hire before any agent exists), and the server derives the owner from the authenticated actor.
+
+| Route | Purpose |
+|---|---|
+| `GET /api/companies/{companyId}/claude-oauth-token-status` | Read whether a stored Claude OAuth token exists for the authenticated owner. Returns only the secret id and latest version — never a token. A missing or foreign value returns the same fixed `404`. |
+| `POST /api/companies/{companyId}/setup-token-login-sessions` | Start a login session. Body: `{ "environmentId": "<uuid>", "adapterType": "claude_local", "overwrite"?: { … } }`. Returns `201`. |
+| `GET /api/companies/{companyId}/setup-token-login-sessions/active` | Rediscover the caller's own active session without a session id — handy after a browser reload with no local state. Returns the panel mode and the one-time prompt, sent with `Cache-Control: no-store, private`. A non-owner, a foreign company, or no active session all return the same fixed `404`. |
+| `GET /api/companies/{companyId}/setup-token-login-sessions/{sessionId}` | Read the session status. |
+| `GET /api/companies/{companyId}/setup-token-login-sessions/{sessionId}/prompt` | Read the one-time login prompt (the authorization URL to open in a browser). |
+| `POST /api/companies/{companyId}/setup-token-login-sessions/{sessionId}/code` | Submit the code the browser hands back. Body: `{ "browserCode": "…" }`. |
+| `POST /api/companies/{companyId}/setup-token-login-sessions/{sessionId}/completion` | Read the completion claim. Returns the non-secret `storedSessionId` — never a token. |
+| `POST /api/companies/{companyId}/setup-token-login-sessions/{sessionId}/cancel` | Cancel the session. Idempotent: a missing, terminal, or foreign session id all return `200`, so the route never confirms a session exists. |
+
+Two things to know:
+
+- **No response ever carries a token.** The completion returns only the opaque `storedSessionId` claim; the stored value lives in the company's secrets.
+- **The prompt, code, and completion calls require a confidential transport.** Over a non-confidential connection the guard returns `403` — these steps move the login material, so they refuse to run in the clear.
+
+---
+
+## Managed and Remote Agent Profiles
+
+Not every agent runs from an editable adapter config. Sometimes an operator qualifies a fixed backend once — a Claude Managed Agent, or a remote runner such as AWS Bedrock AgentCore — and stores it as a company-scoped **profile**. Runtime inputs then copy the immutable resource identity from the profile row instead of trusting an agent's own adapter config. Credentials never live in the profile itself: managed profiles link a company secret by id, and remote profiles carry no credential at all.
+
+Both profile APIs are board-only and company-scoped, and both `POST` routes upsert (keyed by `profileKey`) and return `201`.
+
+### Managed agent profiles
+
+`GET /api/companies/{companyId}/managed-agent-profiles`
+`POST /api/companies/{companyId}/managed-agent-profiles`
+
+The request body accepts:
+
+| Field | Notes |
+|---|---|
+| `profileKey` | Company-unique key for the profile. |
+| `displayName` | Human-friendly label. |
+| `anthropicAgentId` | The managed agent's immutable public id. |
+| `agentVersion` | The qualified agent version. |
+| `environmentId` | The managed environment id. |
+| `defaultModel` | Model id. Defaults to `claude-sonnet-5`. |
+| `defaultMaxListCostUsd` | Per-list cost ceiling in US dollars. Defaults to `1` and must be positive; the server stores it internally as `defaultMaxListCostCents`. |
+| `apiKeySecretId` | Id of the company secret that holds the API key. The credential stays in the secret store. |
+| `enabled` | Whether the profile is active. Defaults to `false`. |
+| `retentionAcknowledged` | Whether the operator has acknowledged data retention. Defaults to `false`. |
+| `qualification` | Free-form qualification-evidence object. |
+
+The stored profile also exposes `service` (always `anthropic_managed_agents`), `betaVersion`, `qualifiedAt`, `qualifiedRevision`, and the usual timestamps. A profile can only be qualified/enabled once its qualification is attested. Upserts are logged as `managed_agent_profile.upserted`.
+
+### Remote agent profiles
+
+`GET /api/companies/{companyId}/remote-agent-profiles`
+`POST /api/companies/{companyId}/remote-agent-profiles`
+
+The list route accepts an optional `?service=` filter. The request body accepts:
+
+| Field | Notes |
+|---|---|
+| `profileKey` | Company-unique key for the profile. |
+| `displayName` | Human-friendly label. |
+| `service` | Remote runner service. Currently only `aws_bedrock_agentcore_harness` is accepted. |
+| `configuration` | Service-specific configuration object. |
+| `enabled` | Whether the profile is active. Defaults to `false`. |
+| `retentionAcknowledged` | Whether the operator has acknowledged data retention. Defaults to `false`. |
+| `qualification` | Free-form qualification-evidence object. |
+
+AWS AgentCore authenticates through the runner environment's workload identity, so the profile stores no credential. Sending a `credentialSecretId` is rejected with `422 Unprocessable Entity`, and an unsupported `service` value is rejected the same way. The stored profile also exposes `qualifiedAt`, `qualifiedRevision`, and timestamps. Upserts are logged as `remote_agent_profile.upserted`.
+
+---
+
+## Common Edge Cases
+
+- Agent shortname lookup without company context returns `422 Unprocessable Entity`.
+- A shortname collision returns `409 Conflict`.
+- Updating `permissions` through the main update route returns `422`.
+- Creating a key for a terminated or pending approval agent returns `409`.
+- Pause and resume are not available for terminated agents.
+- Wakeup can be skipped even when the request is accepted, especially when policy or execution state blocks it.
+
+---
+
+## Notes
+
+This page was rewritten to match the current agent routes, auth rules, lifecycle behavior, and docs-site markdown conventions.
+
+Changed file:
+
+- `docs/api/agents.md`

@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Upstream Geetorus Repository
+    url: https://github.com/geetorusai/geetorus
+    about: Check the upstream project for official code changes, issues, and pull requests.
+

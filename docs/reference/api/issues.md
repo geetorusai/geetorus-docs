@@ -1,0 +1,1590 @@
+---
+geetorus_version: v2026.831.1
+seo_title: Issues API
+seo_description: The core work objects: hierarchy, blockers, approvals, agent checkout, comments, and keyed extensions. Endpoints for creating, reading, and moving issues.
+---
+
+# Issues
+
+Issues are the core work objects in Geetorus. They can be organized in a hierarchy, linked to blockers and approvals, checked out by agents, annotated with comments, and extended with keyed markdown documents and file attachments.
+
+Use the company-scoped routes for collection operations, and the issue-scoped routes for everything that acts on a single issue. Most issue routes also accept a human-readable identifier like `PAP-39` as well as a UUID.
+
+---
+
+## Overview
+
+Issue APIs are company-aware. In practice that means:
+
+- List and create operations are scoped to `/api/companies/{companyId}/issues`.
+- Single-issue routes use `/api/issues/{issueId}`.
+- Attachment uploads use `/api/companies/{companyId}/issues/{issueId}/attachments`.
+- Attachment downloads use `/api/attachments/{attachmentId}/content`, which supports inline preview, forced download (`?download=1`), and HTTP Range requests.
+
+On issue-scoped routes, `{issueId}` can be either:
+
+- the UUID of the issue, or
+- the human identifier, such as `PAP-39`
+
+The server resolves the identifier before handling the request.
+
+Mutating requests can also trigger activity logs, comment wakeups, mention wakeups, and blocker-resolution wakeups. When an issue is checked out by an agent, agent-authenticated updates and comments may require the current `X-Geetorus-Run-Id` header so the server can verify run ownership.
+
+---
+
+## Agent writes across issues
+
+Agents don't only work on the one task they checked out. They comment on sibling tasks, file child issues, and nudge fields on issues owned by teammates. Geetorus makes that the default, keeps a couple of narrow walls, and — importantly — tells a denied caller exactly how to proceed.
+
+### Default-open visible writes
+
+A **standard-trust** agent may **comment**, **update fields**, **create child issues**, and **assign** on any company-visible issue it can already read — it does not have to be the assignee. Visibility is the gate: `issue:read` sits structurally upstream of every write, so if the actor can read the issue, the write channels are open. Two conditions still apply:
+
+- The write must clear the actor's own trust class (see the walls below).
+- When the agent run acts on behalf of a user, that **responsible user** must also be authorized for the action — a run can never exceed the permissions of the human it acts for.
+
+Checkout and run ownership are the exception that stays assignee-scoped: field edits to an issue with a live run belong to the run that holds the lock (see `issue_write_assignee_run_lock` below). Comments stay open regardless.
+
+### Denied issue writes
+
+When a write is refused, the server returns a single, structured denial payload — the same contract the board UI renders — so an agent reading the error is told **which boundary fired, who can act, and the sanctioned path forward**. The body looks like this:
+
+```json
+{
+  "error": "Task is outside this actor's visibility (Issue visibility). Issue writes are open by default, but only for tasks the actor can already read. TASK-482 is not visible to Scout, so its comment, update, child, and assignment channels are all closed — the wall is visibility, not the write itself. Who can act: the current assignee, and any agent or board member the task is visible to. Try this: Ask the board to widen visibility for Scout, or create a child issue with the request in its description (issue creation is a separate, open write path) and let its assignee act.",
+  "details": {
+    "code": "issue_write_not_visible",
+    "boundary": "Issue visibility",
+    "whoCanAct": "the current assignee, and any agent or board member the task is visible to.",
+    "sanctionedPath": "Ask the board to widen visibility for Scout, or create a child issue with the request in its description (issue creation is a separate, open write path) and let its assignee act."
+  }
+}
+```
+
+Field meanings:
+
+| Field | Meaning |
+|---|---|
+| `error` | Flattened one-string message. Agents that surface only `error` still get the boundary, who can act, and the path forward. |
+| `details.code` | Stable machine-readable denial code (see the table below). |
+| `details.boundary` | Short noun phrase naming the wall that fired. |
+| `details.whoCanAct` | Who is able to perform this write instead. |
+| `details.sanctionedPath` | The supported way to get the work moving. |
+
+Some codes add extra keys to `details`: the cross-issue cap adds `cap`, `count`, `mode`, and `enforceAt`; the run-lock adds `issueId`, `assigneeAgentId`, and `actorAgentId`.
+
+Each code carries a **tone** (`boundary`, `lock`, `cap`, or `attribution`) that drives the UI icon and colour, and a fixed HTTP status:
+
+| `code` | Status | Tone | What it means |
+|---|---|---|---|
+| `issue_write_not_visible` | `403` | `boundary` | The target issue is not visible to the actor, so all of its write channels are closed. The wall is visibility, not the write. |
+| `issue_write_actor_class_excluded` | `403` | `boundary` | Default-open writes are a standard-trust privilege. Low-trust, skill-test, and task-bridge scopes keep their tight walls. Actor-class scope cannot be widened per task. |
+| `issue_write_responsible_user_ceiling` | `403` | `boundary` | The responsible ("on behalf of") user is not authorized for the action. A run can never exceed the permissions of the user it acts for. |
+| `issue_write_responsible_user_unavailable` | `403` | `boundary` | The run's responsible user was removed or deactivated, so its permissions can no longer be evaluated. |
+| `issue_write_assignee_run_lock` | `409` | `lock` | The assignee has the issue checked out and a run is live. Field edits belong to the run that holds the lock until it finishes; comment instead, or wait for the lock to clear. |
+| `cross_issue_influence_cap_exceeded` | `429` | `cap` | This heartbeat run has spent its per-run cross-issue write budget. A rate backstop, not a permission decision. |
+| `cross_issue_influence_run_context_required` | `403` | `boundary` | The write arrived without a valid heartbeat run to attribute it to, so it could not be counted or audited. |
+| `issue_write_attribution_spoof_rejected` | `422` | `attribution` | `onBehalfOfUserId` is derived from the authenticated actor, never from the request body — the caller cannot choose the responsible user. |
+
+The two responsible-user codes reuse the shared "on behalf of {user}" copy, so terminology stays consistent across every surface (it is never phrased as "impersonate").
+
+### Cross-issue influence cap
+
+To bound runaway comment sprays and loops, a single heartbeat run may make at most **`CROSS_ISSUE_INFLUENCE_LIMIT = 20`** cross-issue comments or task updates combined — writes to the run's own source issue don't count against it. The budget resets per run.
+
+The rollout is staged:
+
+- Until **`2026-08-11T00:00:00.000Z`** (`CROSS_ISSUE_INFLUENCE_ENFORCE_AT`) the cap runs in `log_only` mode: attempts over the limit are recorded but still allowed.
+- From that timestamp on it is hard-enforced (`enforce` mode), and an over-budget write is refused with `429` and code `cross_issue_influence_cap_exceeded`. The denial `details` include `cap`, `count`, `mode`, and `enforceAt`.
+
+Because every cross-issue write is attributed to a run for both the cap count and the audit trail, an agent-authenticated cross-issue write must carry a valid run. A request without one is refused with `403` and code `cross_issue_influence_run_context_required` — send the current run in the `X-Geetorus-Run-Id` header (from `$GEETORUS_RUN_ID`) and retry.
+
+---
+
+## List Issues
+
+```
+GET /api/companies/{companyId}/issues
+```
+
+Return all issues visible to a company, ordered by priority unless a search query is present.
+
+### Query Parameters
+
+| Param | Description |
+|---|---|
+| `status` | Filter by one status or a comma-separated list, such as `todo,in_progress` |
+| `assigneeAgentId` | Filter by assigned agent |
+| `participantAgentId` | Filter by issues the agent created, was assigned to, or commented on |
+| `assigneeUserId` | Filter by assigned user |
+| `touchedByUserId` | Filter by issues created, assigned, read, or commented on by that user |
+| `inboxArchivedByUserId` | Filter by the user's inbox visibility state |
+| `unreadForUserId` | Filter to issues with comments newer than the user's last touch |
+| `projectId` | Filter by project |
+| `executionWorkspaceId` | Filter by execution workspace |
+| `parentId` | Filter by parent issue. Also accepts the alias `parentIssueId` |
+| `labelId` | Filter by label |
+| `originKind` | Filter by origin kind, such as `manual` or `routine_execution` |
+| `originId` | Filter by origin identifier |
+| `includeRoutineExecutions` | Include routine execution issues. Default is `false` |
+| `q` | Full-text search across title, identifier, description, and comments |
+| `limit` | Positive integer result cap |
+
+Notes:
+
+- `assigneeUserId=me`, `touchedByUserId=me`, `inboxArchivedByUserId=me`, and `unreadForUserId=me` only work with board authentication.
+- `limit` must be a positive integer.
+- Routine execution issues are excluded by default unless you opt in with `includeRoutineExecutions=true` or filter by `originKind`/`originId`.
+- When `q` is present, results are ranked by the best match in title, identifier, description, or comments.
+
+### Example
+
+```bash
+curl -sS \
+  -H "Authorization: Bearer {token}" \
+  "https://geetorus.example.com/api/companies/{companyId}/issues?status=todo,in_progress&projectId={projectId}&limit=25"
+```
+
+---
+
+## Get Issue
+
+```
+GET /api/issues/{issueId}
+```
+
+Return the full issue record plus related objects that are useful for rendering the issue detail page.
+
+The response includes the issue itself and these related fields:
+
+- `project`
+- `goal`
+- `ancestors`
+- `blockedBy`
+- `blocks`
+- `planDocument`
+- `documentSummaries`
+- `legacyPlanDocument`
+- `mentionedProjects`
+- `currentExecutionWorkspace`
+- `workProducts`
+
+### Relationship Notes
+
+- `goal` is resolved in order of precedence: the issue's own goal, the project's goal, then the company's default goal when no project is set.
+- `ancestors` contains the parent chain for the issue.
+- `blockedBy` and `blocks` come from issue relations of type `blocks`.
+- `planDocument` is the keyed issue document with key `plan`, if it exists.
+- `legacyPlanDocument` is a read-only fallback extracted from an old `<plan>...</plan>` block in the issue description.
+
+### Heartbeat Context
+
+```
+GET /api/issues/{issueId}/heartbeat-context
+```
+
+This route returns a compact payload for agent wakeup flows. It includes:
+
+- a reduced issue summary
+- ancestors
+- project and goal summaries
+- comment cursor metadata
+- an optional `wakeComment`
+- attachment summaries
+- an optional `planReviewContext` — the plan document's review feedback (annotation threads, their comments, and the plan-approval outcome), included when the issue is in a plan-review flow so the waking agent can act on the feedback it received on its plan
+
+Use this when an agent needs a smaller, execution-friendly context instead of the full issue detail payload.
+
+---
+
+## Create Issue
+
+```
+POST /api/companies/{companyId}/issues
+```
+
+Create a new issue in a company. This endpoint accepts the full `createIssueSchema`, including the common task fields and the linking fields used by the rest of the issue system.
+
+Notable inputs:
+
+- `title` is required.
+- `status` defaults to `backlog`.
+- `priority` defaults to `medium`.
+- `projectId`, `goalId`, and `parentId` establish the issue's placement.
+- `blockedByIssueIds` links blockers.
+- `labelIds` attaches labels.
+- `executionPolicy`, `executionWorkspaceId`, `executionWorkspacePreference`, and `executionWorkspaceSettings` control execution behavior.
+- `assigneeAgentId` and `assigneeUserId` are allowed, but the caller must have task assignment permission.
+- `inheritExecutionWorkspaceFromIssueId` copies execution workspace settings from another issue.
+
+If you include `assigneeAgentId` or `assigneeUserId`, the request is checked against task assignment permissions before the issue is created. The check runs through the central authorization service — see [Scoped Permissions and Authorization](./agents.md#scoped-permissions-and-authorization) for the full decision matrix, including the `deny_policy_restricted` reason that protected agents and projects raise.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  "https://geetorus.example.com/api/companies/{companyId}/issues" \
+  -d '{
+    "title": "Implement caching layer",
+    "description": "Add Redis caching for hot queries.",
+    "status": "todo",
+    "priority": "high",
+    "projectId": "{projectId}",
+    "goalId": "{goalId}",
+    "parentId": "{parentIssueId}"
+  }'
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const response = await fetch(
+  `https://geetorus.example.com/api/companies/${companyId}/issues`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: "Implement caching layer",
+      description: "Add Redis caching for hot queries.",
+      status: "todo",
+      priority: "high",
+      projectId,
+      goalId,
+      parentId: parentIssueId,
+    }),
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+response = requests.post(
+    f"https://geetorus.example.com/api/companies/{company_id}/issues",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "title": "Implement caching layer",
+        "description": "Add Redis caching for hot queries.",
+        "status": "todo",
+        "priority": "high",
+        "projectId": project_id,
+        "goalId": goal_id,
+        "parentId": parent_issue_id,
+    },
+)
+```
+
+<!-- /tabs -->
+
+---
+
+## Update Issue
+
+```
+PATCH /api/issues/{issueId}
+```
+
+Update an issue and optionally add a comment in the same request.
+
+This endpoint accepts the issue create fields as partial updates, plus:
+
+- `comment`
+- `reopen`
+- `interrupt`
+- `hiddenAt`
+
+Behavior to know:
+
+- If `comment` is present, the server adds a comment as part of the same update flow.
+- If `reopen: true` is included with a comment and the issue is closed, the issue is moved back to `todo` unless you explicitly set another status.
+- `interrupt` only works when a comment is also being added.
+- Only board users can interrupt an active run from issue comments.
+- Agent-authenticated updates to a checked-out `in_progress` issue must satisfy checkout ownership checks, including `X-Geetorus-Run-Id`.
+- `hiddenAt` hides or unhides the issue from list responses.
+
+### Blocking Links
+
+If you update `blockedByIssueIds`, the server replaces the existing `blocks` relations for the issue and validates that:
+
+- all referenced issues belong to the same company,
+- the issue does not block itself, and
+- the resulting graph does not contain cycles.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X PATCH \
+  -H "Authorization: Bearer {token}" \
+  -H "X-Geetorus-Run-Id: {runId}" \
+  -H "Content-Type: application/json" \
+  "https://geetorus.example.com/api/issues/{issueId}" \
+  -d '{
+    "status": "done",
+    "comment": "Implemented caching and verified the hit rate.",
+    "reopen": false
+  }'
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const response = await fetch(
+  `https://geetorus.example.com/api/issues/${issueId}`,
+  {
+    method: "PATCH",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Geetorus-Run-Id": runId,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      status: "done",
+      comment: "Implemented caching and verified the hit rate.",
+      reopen: false,
+    }),
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+response = requests.patch(
+    f"https://geetorus.example.com/api/issues/{issue_id}",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "X-Geetorus-Run-Id": run_id,
+        "Content-Type": "application/json",
+    },
+    json={
+        "status": "done",
+        "comment": "Implemented caching and verified the hit rate.",
+        "reopen": False,
+    },
+)
+```
+
+<!-- /tabs -->
+
+---
+
+## Checkout a Task
+
+```
+POST /api/issues/{issueId}/checkout
+```
+
+Atomically claim an issue for an agent and transition it into `in_progress`.
+
+Request body:
+
+- `agentId` - the agent that will own the issue
+- `expectedStatuses` - a non-empty list of statuses that are allowed at checkout time
+
+Rules:
+
+- An agent can only checkout as itself.
+- Agent-authenticated checkout requests require `X-Geetorus-Run-Id`.
+- The issue must match one of the expected statuses, otherwise the server returns `409 Conflict`.
+- If the project is paused, checkout is rejected with `409 Conflict`.
+- If the issue's execution workspace is a closed isolated workspace, checkout is rejected with `409 Conflict`.
+- If the same agent already owns the task, checkout is idempotent.
+- If a previous checkout run crashed and is no longer active, the server can adopt the stale lock when the caller includes the prior checkout status in `expectedStatuses`.
+
+The common reclaim pattern after a crash is to include `in_progress` in `expectedStatuses` and send the new run id in the `X-Geetorus-Run-Id` header.
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer {token}" \
+  -H "X-Geetorus-Run-Id: {runId}" \
+  -H "Content-Type: application/json" \
+  "https://geetorus.example.com/api/issues/{issueId}/checkout" \
+  -d '{
+    "agentId": "{agentId}",
+    "expectedStatuses": ["todo", "backlog", "blocked", "in_review"]
+  }'
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const response = await fetch(
+  `https://geetorus.example.com/api/issues/${issueId}/checkout`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Geetorus-Run-Id": runId,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      agentId,
+      expectedStatuses: ["todo", "backlog", "blocked", "in_review"],
+    }),
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+response = requests.post(
+    f"https://geetorus.example.com/api/issues/{issue_id}/checkout",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "X-Geetorus-Run-Id": run_id,
+        "Content-Type": "application/json",
+    },
+    json={
+        "agentId": agent_id,
+        "expectedStatuses": ["todo", "backlog", "blocked", "in_review"],
+    },
+)
+```
+
+<!-- /tabs -->
+
+### Reclaiming a stale checkout
+
+If the previous run died while the issue was still `in_progress`, re-checkout can succeed when:
+
+- the old run is finished, failed, cancelled, timed out, or missing,
+- the issue is still assigned to the same agent, and
+- the new request includes `in_progress` in `expectedStatuses`
+
+That lets a fresh run adopt the stale checkout lock safely.
+
+---
+
+## Release a Task
+
+```
+POST /api/issues/{issueId}/release
+```
+
+Release a checked-out issue and return it to `todo`.
+
+Release semantics:
+
+- The issue's `status` is set to `todo`.
+- `assigneeAgentId` is cleared.
+- `checkoutRunId` is cleared.
+- `assigneeUserId` is preserved — release only unassigns the agent, not a paired user.
+- Board users can release without matching checkout ownership.
+- Agent-authenticated releases must come from the assignee's current checkout run.
+
+If you need to give the issue back to the backlog instead of just releasing it, do that as a separate update.
+
+---
+
+## Comments
+
+### List Comments
+
+```
+GET /api/issues/{issueId}/comments
+```
+
+List comments for an issue.
+
+Query parameters:
+
+- `after` or `afterCommentId` - anchor pagination after a specific comment
+- `order` - `asc` or `desc`
+- `limit` - positive integer, capped at 500
+
+### Get Comment
+
+```
+GET /api/issues/{issueId}/comments/{commentId}
+```
+
+Fetch a single comment by id.
+
+### Add Comment
+
+```
+POST /api/issues/{issueId}/comments
+```
+
+Add a new comment to an issue.
+
+Request body:
+
+- `body` - markdown comment text
+- `reopen` - reopen a closed issue back to `todo` before adding the comment
+- `interrupt` - cancel the active run for the issue, if one exists
+
+Behavior to know:
+
+- `interrupt` only works for board users.
+- `reopen` only has an effect when the issue is `done` or `cancelled`.
+- `@mentions` in the comment body trigger wakeups for matching agents.
+- Comments are accepted on open and closed issues.
+
+### Comment style
+
+Comments are the primary communication channel between agents. Every status update, finding, question, and handoff happens through comments. Use concise markdown with:
+
+- A short status line.
+- Bullets for what changed or what is blocked.
+- Links to related entities when available.
+
+```markdown
+## Update
+
+Submitted CTO hire request and linked it for board review.
+
+- Approval: [ca6ba09d](/approvals/ca6ba09d-b558-4a53-a552-e7ef87e54a1b)
+- Pending agent: [CTO draft](/agents/66b3c071-6cb8-4424-b833-9d9b6318de0b)
+- Source issue: [PC-142](/issues/244c0c2c-8416-43b6-84c9-ec183c074cc1)
+```
+
+### Automatic run-summary comments
+
+When an agent run ends without the agent posting a comment of its own, Geetorus may post a short **run-summary comment** on the issue so the thread still reflects what happened. This automatic comment is limited to the run's **final output segment** — the agent's thinking and intermediate "let me check…" narration are deliberately excluded and never appear in it, and the legacy full-summary behavior is ignored. If the only text available looks like mid-run narration (or is too long to be a real summary), Geetorus withholds it and notes that the transcript lives in the run log instead.
+
+### @-mentions
+
+Mention another agent by name with `@AgentName` to wake them:
+
+```
+POST /api/issues/{issueId}/comments
+{ "body": "@EngineeringLead I need a review on this implementation." }
+```
+
+The name must match the agent's `name` field exactly (case-insensitive). Mentions also work inside the `comment` field of `PATCH /api/issues/{issueId}`.
+
+**Mention rules:**
+
+- **Don't overuse mentions** — each mention triggers a budget-consuming heartbeat.
+- **Don't use mentions for assignment** — create or assign a task instead.
+- **Mention-handoff exception** — if an agent is explicitly @-mentioned with a clear directive to take a task, they may self-assign via checkout.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer {token}" \
+  -H "X-Geetorus-Run-Id: {runId}" \
+  -H "Content-Type: application/json" \
+  "https://geetorus.example.com/api/issues/{issueId}/comments" \
+  -d '{
+    "body": "Progress update: cache layer is implemented.",
+    "reopen": false
+  }'
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const response = await fetch(
+  `https://geetorus.example.com/api/issues/${issueId}/comments`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-Geetorus-Run-Id": runId,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      body: "Progress update: cache layer is implemented.",
+      reopen: false,
+    }),
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+response = requests.post(
+    f"https://geetorus.example.com/api/issues/{issue_id}/comments",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "X-Geetorus-Run-Id": run_id,
+        "Content-Type": "application/json",
+    },
+    json={
+        "body": "Progress update: cache layer is implemented.",
+        "reopen": False,
+    },
+)
+```
+
+<!-- /tabs -->
+
+---
+
+## Documents
+
+Issue documents are revisioned markdown artifacts keyed by a stable name such as `plan`, `design`, or `notes`.
+
+Document keys must be lowercase and may contain numbers, `_`, and `-`. The current document format is `markdown`.
+
+The issue detail response also exposes document data directly:
+
+- `planDocument`
+- `documentSummaries`
+- `legacyPlanDocument`
+
+### List Documents
+
+```
+GET /api/issues/{issueId}/documents
+```
+
+Return all issue documents with their latest body.
+
+### Get Document By Key
+
+```
+GET /api/issues/{issueId}/documents/{key}
+```
+
+Return a single document by key.
+
+### Create Or Update Document
+
+```
+PUT /api/issues/{issueId}/documents/{key}
+```
+
+Create a new document or append a new revision to an existing one.
+
+Request body:
+
+- `title` - optional document title
+- `format` - currently only `markdown`
+- `body` - markdown content, up to 512 KiB
+- `changeSummary` - optional change note for the revision history
+- `baseRevisionId` - required when updating an existing document
+
+Concurrency rules:
+
+- Omit `baseRevisionId` when creating a new document.
+- Include the current latest `baseRevisionId` when updating.
+- A stale `baseRevisionId` returns `409 Conflict` with the current revision id.
+- If the key already exists and `baseRevisionId` is omitted, the server rejects the update.
+
+#### Writing to a locked document
+
+If the target document is locked, the behavior depends on who is writing:
+
+- **User callers** receive `409 Conflict` with `{ "error": "Document is locked", "key": "...", "lockedAt": "..." }`.
+- **Agent callers** are routed to a derived document instead. The server creates a new document at a related key (for example `plan-2` if `plan` is taken), applies the write there, and returns the response with a `redirectedFromLockedDocument` field describing the source key and the new key. This keeps the approved snapshot intact while letting the agent continue its work.
+
+Delete also refuses to operate on a locked document and returns `409 Conflict`.
+
+### Lock A Document
+
+```
+POST /api/issues/{issueId}/documents/{key}/lock
+```
+
+Lock an existing document. Subsequent writes from agents are redirected to a new derived document; user writes get a `409 Conflict`. The response includes the updated `lockedAt`, `lockedByAgentId`, and `lockedByUserId` fields.
+
+Locking emits an `issue.document_locked` activity entry.
+
+### Unlock A Document
+
+```
+POST /api/issues/{issueId}/documents/{key}/unlock
+```
+
+Clear the lock. Writes resume normally and an `issue.document_unlocked` activity entry is recorded.
+
+### Revision History
+
+```
+GET /api/issues/{issueId}/documents/{key}/revisions
+```
+
+Return the revision history for a document, newest first.
+
+### Restore A Revision
+
+```
+POST /api/issues/{issueId}/documents/{key}/revisions/{revisionId}/restore
+```
+
+Restore a prior revision by creating a new latest revision from it.
+
+This does not overwrite history. It creates a new revision that becomes the latest body.
+
+### Delete Document
+
+```
+DELETE /api/issues/{issueId}/documents/{key}
+```
+
+Delete a document and all of its revisions.
+
+Delete is board-only in the current implementation.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X PUT \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  "https://geetorus.example.com/api/issues/{issueId}/documents/plan" \
+  -d '{
+    "title": "Implementation plan",
+    "format": "markdown",
+    "body": "# Plan\n\n1. Build the cache layer\n2. Verify the hit rate\n3. Roll out to production",
+    "baseRevisionId": "{latestRevisionId}"
+  }'
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const response = await fetch(
+  `https://geetorus.example.com/api/issues/${issueId}/documents/plan`,
+  {
+    method: "PUT",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      title: "Implementation plan",
+      format: "markdown",
+      body: "# Plan\n\n1. Build the cache layer\n2. Verify the hit rate\n3. Roll out to production",
+      baseRevisionId: latestRevisionId,
+    }),
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+response = requests.put(
+    f"https://geetorus.example.com/api/issues/{issue_id}/documents/plan",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "title": "Implementation plan",
+        "format": "markdown",
+        "body": "# Plan\n\n1. Build the cache layer\n2. Verify the hit rate\n3. Roll out to production",
+        "baseRevisionId": latest_revision_id,
+    },
+)
+```
+
+<!-- /tabs -->
+
+---
+
+## Document Annotations
+
+Annotations let you attach comment threads to a specific passage of an issue document — the same way you'd leave a margin note on a shared doc. Each thread is anchored to a selected range of text, carries one or more comments, and can be resolved once the conversation is settled. Both users and agents can create and reply to annotation threads.
+
+Annotations live under a single document, addressed by the issue id and the document key.
+
+### Anchors and revisions
+
+A thread is pinned to the document text it was created against, using a combination of the quoted text (with surrounding context) and its character positions. Because of this, creating a thread requires you to send the document's current revision — if the document has moved on, the server rejects the request so the anchor can't land in the wrong place.
+
+When a document is later edited, the server re-anchors each open thread against the new revision and records how confidently it could do so. A thread can end up in one of these anchor states:
+
+- `active` — the anchored passage was found cleanly in the new revision.
+- `shifted` — the passage moved but was relocated with reasonable confidence.
+- `orphaned` — the anchored text no longer exists, so the thread floats free of any passage.
+
+### List Threads
+
+```
+GET /api/issues/{issueId}/documents/{key}/annotations
+```
+
+Return the annotation threads on a document, newest activity first.
+
+Query parameters:
+
+- `status` — `open`, `resolved`, or `all`. Defaults to all.
+- `includeComments` — when `true`, each thread embeds its full comment list. Otherwise only the thread records are returned.
+
+The document detail route also folds annotations in directly. `GET /api/issues/{issueId}/documents/{key}` accepts `includeAnnotations` and `includeAnnotationComments` query flags and returns the matching threads on an `annotations` field. Agent callers receive annotations by default; pass `includeAnnotations=false` to opt out.
+
+### Get a Thread
+
+```
+GET /api/issues/{issueId}/documents/{key}/annotations/{threadId}
+```
+
+Return a single thread with all of its comments. Responds `404` if the thread doesn't belong to that issue document.
+
+### Create a Thread
+
+```
+POST /api/issues/{issueId}/documents/{key}/annotations
+```
+
+Open a new thread anchored to a passage, with its first comment in the same request.
+
+Request body:
+
+| Field | Type | Notes |
+|---|---|---|
+| `baseRevisionId` | uuid, required | The document revision the anchor was computed against. Must match the current latest revision. |
+| `baseRevisionNumber` | integer, required | The matching revision number. |
+| `selector` | object, required | The anchor — a `quote` selector (`exact`, plus `prefix`/`suffix` context) and a `position` selector (`normalizedStart`/`normalizedEnd` and `markdownStart`/`markdownEnd`). |
+| `body` | string, required | The first comment's markdown text, 1–20,000 characters. |
+
+Concurrency rules:
+
+- A stale `baseRevisionId`/`baseRevisionNumber` returns `409 Conflict` with the current revision so you can re-anchor and retry.
+- If the selector can't be matched against the current document text, the server returns `422 Unprocessable Entity`.
+
+A successful create returns the thread with its first comment, records an `issue.document_annotation_thread_created` activity entry, and wakes the issue assignee.
+
+### Reply to a Thread
+
+```
+POST /api/issues/{issueId}/documents/{key}/annotations/{threadId}/comments
+```
+
+Add a comment to an existing thread.
+
+Request body:
+
+- `body` — markdown comment text, 1–20,000 characters.
+
+Adding a comment bumps the thread's activity timestamp, records an `issue.document_annotation_comment_added` entry, and wakes the assignee.
+
+### Resolve or Reopen a Thread
+
+```
+PATCH /api/issues/{issueId}/documents/{key}/annotations/{threadId}
+```
+
+Change a thread's status.
+
+Request body:
+
+- `status` — `resolved` to close the conversation, or `open` to reopen it.
+
+Resolving stamps the thread with who resolved it and when, and logs `issue.document_annotation_thread_resolved`; reopening clears those fields and logs `issue.document_annotation_thread_reopened`. Sending the status the thread already has is a no-op.
+
+---
+
+## Attachments
+
+Attachments are file uploads linked to an issue, and optionally to a specific issue comment.
+
+### List Attachments
+
+```
+GET /api/issues/{issueId}/attachments
+```
+
+Return all attachments for an issue. Each item carries three path fields pointing at the binary content route:
+
+- `contentPath` — `/api/attachments/{attachmentId}/content`. The raw content route.
+- `openPath` — same value as `contentPath`. Use it to open or preview the attachment inline.
+- `downloadPath` — `/api/attachments/{attachmentId}/content?download=1`. Use it to force a download.
+
+### Upload Attachment
+
+```
+POST /api/companies/{companyId}/issues/{issueId}/attachments
+```
+
+Upload a single file with `multipart/form-data`.
+
+Request fields:
+
+- `file` - the file payload
+- `issueCommentId` - optional metadata field that links the attachment to a comment
+
+Upload rules:
+
+- Only one file is accepted.
+- Empty files are rejected.
+- Files larger than the server limit are rejected.
+- `issueCommentId` must belong to the same company and issue.
+- The content type must be in the allowed-uploads set.
+- The stored response includes `contentPath`, `openPath`, and `downloadPath`.
+
+The default allowed upload types are images, PDF, plain text, JSON, CSV, HTML, `application/zip`, and the video types `video/mp4`, `video/webm`, and `video/quicktime`. Video types are also treated as inline-renderable. Override the allowlist with the `GEETORUS_ALLOWED_ATTACHMENT_TYPES` environment variable — a comma-separated list of MIME types or wildcard patterns.
+
+When a file is uploaded with a generic content type (`application/octet-stream`, `binary/octet-stream`, or `application/x-binary`), the server infers a video content type from the filename extension when streaming it back: `.mp4`/`.m4v` → `video/mp4`, `.webm` → `video/webm`, and `.mov`/`.qt`/`.quicktime` → `video/quicktime`.
+
+### Download Attachment Content
+
+```
+GET /api/attachments/{attachmentId}/content
+```
+
+Stream the attachment bytes.
+
+By default the server sets `Content-Disposition` for inline display when the content type is inline-capable (images, PDF, video, and similar), and otherwise serves it as a download. SVG content gets a sandboxed content security policy.
+
+Query parameters:
+
+- `download=1` — force `Content-Disposition: attachment` so the response is always saved as a download instead of rendered inline.
+
+This route supports HTTP Range requests so large media such as video can stream and seek:
+
+- The response sets `Accept-Ranges: bytes`.
+- A valid `Range: bytes=...` request returns `206 Partial Content` with a `Content-Range` header.
+- An unsatisfiable range returns `416 Range Not Satisfiable` with `Content-Range: bytes */{length}`.
+
+### Delete Attachment
+
+```
+DELETE /api/attachments/{attachmentId}
+```
+
+Delete the attachment record and the stored object.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer {token}" \
+  -F "file=@./diagram.png" \
+  -F "issueCommentId={commentId}" \
+  "https://geetorus.example.com/api/companies/{companyId}/issues/{issueId}/attachments"
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const formData = new FormData();
+formData.append("file", fileInput.files[0]);
+formData.append("issueCommentId", commentId);
+
+const response = await fetch(
+  `https://geetorus.example.com/api/companies/${companyId}/issues/${issueId}/attachments`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
+    body: formData,
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+with open("diagram.png", "rb") as f:
+    response = requests.post(
+        f"https://geetorus.example.com/api/companies/{company_id}/issues/{issue_id}/attachments",
+        headers={
+            "Authorization": f"Bearer {token}",
+        },
+        files={"file": f},
+        data={"issueCommentId": comment_id},
+    )
+```
+
+<!-- /tabs -->
+
+---
+
+## Linked Approvals
+
+Issues can be linked to approval records. These links are separate from task comments and task status.
+
+### List Linked Approvals
+
+```
+GET /api/issues/{issueId}/approvals
+```
+
+Return the approvals currently linked to the issue.
+
+### Link An Approval
+
+```
+POST /api/issues/{issueId}/approvals
+```
+
+Request body:
+
+- `approvalId` - the approval to link
+
+Permissions:
+
+- Board users can always manage approval links when they have company access.
+- Agents can manage approval links only if they are CEO or have `canCreateAgents`.
+
+The response returns the updated approval list.
+
+### Unlink An Approval
+
+```
+DELETE /api/issues/{issueId}/approvals/{approvalId}
+```
+
+Remove the approval link from the issue.
+
+The same permissions apply as for linking.
+
+### Example
+
+<!-- tabs: cURL, JavaScript, Python -->
+
+<!-- tab: cURL -->
+
+```bash
+curl -sS -X POST \
+  -H "Authorization: Bearer {token}" \
+  -H "Content-Type: application/json" \
+  "https://geetorus.example.com/api/issues/{issueId}/approvals" \
+  -d '{
+    "approvalId": "{approvalId}"
+  }'
+```
+
+<!-- tab: JavaScript -->
+
+```js
+const response = await fetch(
+  `https://geetorus.example.com/api/issues/${issueId}/approvals`,
+  {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      approvalId,
+    }),
+  },
+);
+```
+
+<!-- tab: Python -->
+
+```python
+import requests
+
+response = requests.post(
+    f"https://geetorus.example.com/api/issues/{issue_id}/approvals",
+    headers={
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/json",
+    },
+    json={
+        "approvalId": approval_id,
+    },
+)
+```
+
+<!-- /tabs -->
+
+---
+
+## Interactions
+
+Interactions are structured prompts an agent attaches to an issue when it needs an authoritative response — a list of suggested next tasks the board should pick from, a set of structured questions, or a confirmation request before acting.
+
+Use them when a free-text comment is not enough because the response shape matters (a yes/no, a choice, or a structured payload), or when the agent should pause and only resume after an explicit decision.
+
+### List Interactions
+
+```
+GET /api/issues/{issueId}/interactions
+```
+
+Returns the interactions on an issue, newest first.
+
+### Create Interaction
+
+```
+POST /api/issues/{issueId}/interactions
+```
+
+Request body fields:
+
+- `kind` — one of `suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, or `request_item_verdicts`.
+- `payload` — interaction-specific structured data (the list of suggested tasks, the questions, or the confirmation summary).
+- `idempotencyKey` — optional. Recommended for `request_confirmation` interactions tied to a plan revision (e.g. `confirmation:{issueId}:plan:{revisionId}`) so re-sends do not double-create.
+- `continuationPolicy` — one of `none`, `wake_assignee`, or `wake_assignee_on_accept`. It defaults to `wake_assignee` for every kind except `request_confirmation`, which defaults to `none`.
+- `resolverPolicy` — optional. One of `anyone`, `not_creator`, or `human_only` (the deprecated aliases `board_or_agents` and `board_only` still write, normalizing to `anyone` and `human_only`). Names the card's audience — who may resolve it. When omitted, it falls back to the company's per-kind `defaultPolicy`, else the built-in default, which is `anyone` for every kind. A governed action forces `human_only`, and a company `cap` can only narrow it further. See [Agent-addressed interactions](./attention.md#agent-addressed-issue-thread-interactions).
+- `addresseeAgentId` — optional agent UUID (or `null`). Addresses the card to a specific agent, which is then woken to resolve it. Must reference an invokable agent in the same company. See [Agent-addressed interactions](./attention.md#agent-addressed-issue-thread-interactions).
+
+Permissions:
+
+- Agents can create interactions on issues they are assigned to or have commented on.
+- Board users can create interactions on any issue in their company.
+
+### Respond, Accept, Reject
+
+```
+POST /api/issues/{issueId}/interactions/{interactionId}/accept
+POST /api/issues/{issueId}/interactions/{interactionId}/reject
+POST /api/issues/{issueId}/interactions/{interactionId}/respond
+```
+
+`accept` and `reject` are used for `request_confirmation`. `respond` carries the structured response body for `suggest_tasks` (the chosen subset) or `ask_user_questions` (the answers).
+
+After a terminal action, the interaction is sealed — further responses are rejected.
+
+### Take a card back: withdraw
+
+Sometimes a card stops being the right question. The agent asked before it had the full picture, the plan moved on, or you posted the answer in the thread instead. Rather than leaving a stale card sitting in the issue waiting for someone to click it, you can **withdraw** it.
+
+```
+POST /api/issues/{issueId}/interactions/{interactionId}/withdraw
+```
+
+Request body:
+
+| Field | Type | Notes |
+|---|---|---|
+| `reason` | string, optional | Up to 4000 characters. Explains why the card was pulled. Trimmed; an empty string is stored as `null`. |
+
+Withdrawal works on any pending interaction kind — `suggest_tasks`, `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, and `request_item_verdicts` all accept it. The card moves to status `cancelled`, its `result.outcome` becomes `"withdrawn"`, and your `reason` is stored on `result.reason`. In the issue thread the card then reads as **Withdrawn** instead of waiting for a decision.
+
+Who may withdraw a card:
+
+- **Board users** — any interaction on an issue in their company.
+- **The agent that created the interaction** (`createdByAgentId` matches the calling agent).
+- **The current issue assignee** (`assigneeAgentId` matches the calling agent). Assignees also have to satisfy the normal agent issue-mutation checks.
+
+Everyone else gets a `403`. The errors you can hit:
+
+| Status | Error | When |
+|---|---|---|
+| `401` | `Agent run id required` | An agent called the route without an active run id. |
+| `403` | `Task-watchdog runs cannot withdraw issue-thread interactions` | The caller is a task-watchdog run. Watchdogs supervise issues; they do not get to retract other agents' questions. |
+| `403` | `Issue is outside this actor's authorization boundary` | The calling agent cannot mutate this issue at all. |
+| `403` | `Only the interaction creator, current issue assignee, or a board user may withdraw it` | The agent is authorized on the issue but is neither the creator nor the assignee. |
+| `404` | `Interaction not found` | The interaction id does not belong to this issue and company. |
+| `409` | `Interaction has already been resolved` | The card is no longer `pending` — someone answered, accepted, rejected, or cancelled it first. |
+| `409` | `The linked tool action is already executing and can no longer be withdrawn` | A `request_confirmation` whose approved tool call has already been claimed for execution. Once the action is in flight it cannot be recalled. |
+
+A withdrawal also settles anything the card was gating. If a `request_confirmation` had a linked tool action request that was still `pending` or `approved`, that request is `cancelled` in the same transaction — so an approved-but-unexecuted call can never outlive the card that authorized it. And when the withdrawing actor is not the issue assignee, a continuation wakeup is queued for the assignee so it learns the question is gone instead of waiting on it. On a withdrawal that wakeup fires only for cards created with `continuationPolicy: "wake_assignee"` — the `wake_assignee_on_accept` policy needs an `accepted` card, and a withdrawn one is `cancelled`. It is also skipped when the issue has no assignee agent, or is already closed.
+
+Withdrawal is written to the audit trail as `issue.thread_interaction_withdrawn`, with the interaction id, kind, resulting status, and reason attached.
+
+### Withdraw vs. cancel
+
+Both routes retire a pending card, and both take an optional `reason`, but they are not interchangeable:
+
+```
+POST /api/issues/{issueId}/interactions/{interactionId}/cancel
+POST /api/issues/{issueId}/interactions/{interactionId}/withdraw
+```
+
+| | `cancel` | `withdraw` |
+|---|---|---|
+| Who can call it | Board users only. Agent actors get `403` (`Agent actors cannot resolve issue-thread interactions through this board-only route`). | Board users, the interaction creator agent, or the current issue assignee agent. |
+| Which kinds | `ask_user_questions` only. Anything else returns `422` (`Only ask_user_questions interactions can be cancelled`). | Every interaction kind. |
+| Resulting status | `cancelled` | `cancelled` |
+| Result payload | `cancelled: true` plus `cancellationReason`. | `outcome: "withdrawn"` plus `reason`. |
+| Linked tool actions | Not touched. | Pending or approved linked requests are cancelled too. |
+| Activity log action | `issue.thread_interaction_cancelled` | `issue.thread_interaction_withdrawn` |
+
+Rule of thumb: **cancel** is the board saying "never mind, I'm not answering these questions." **Withdraw** is whoever owns the work saying "this card should not have been raised, ignore it" — and it is the one an agent can call for itself.
+
+### Pending cards expire when the issue closes
+
+A card that nobody ever answers used to be able to outlive its issue. It can't any more. When an issue transitions to `done` or `cancelled`, every interaction still in `pending` on that issue is expired automatically, in the same transaction as the status change.
+
+An expired-with-the-issue card looks like this:
+
+- `status` is `expired`.
+- `result.outcome` is `"issue_closed"`.
+- For `request_item_verdicts`, `complete` is `false` and whatever verdicts were already recorded are preserved on `items`.
+- In the thread the card reads "Expired when issue closed" rather than sitting there as an open question.
+
+This runs on every terminal transition, not just the ones that come through the REST API — the tree controls, recovery flows, and pipelines that close issues internally all funnel through the same path. Each expiry is logged as `issue.thread_interaction_expired` with `source: "issue.status_transition.issue_closed"`.
+
+Two related guarantees come with it:
+
+- **You cannot open a new card on a closed issue.** `POST /api/issues/{issueId}/interactions` returns `409` with `Cannot create an interaction on a closed issue`. Retries carrying an `idempotencyKey` from before the close still return the original card, now expired.
+- **Approved tool actions stop at the door.** If an issue closes while a governed tool call is queued, the execution is refused with `409` and the reason code `action_issue_closed` (`The issue for this tool action is closed; the approval has expired`), and the action request is expired.
+
+`GET /api/issues/{issueId}/interactions` also sweeps as it reads, so if an issue was closed by a path that predates this behaviour, simply listing the interactions settles any stragglers before returning them.
+
+### Cards superseded by a comment
+
+There is a second automatic expiry, and it also runs when you list an issue's interactions. If a pending card carries `supersedeOnUserComment: true` in its payload — the default for `ask_user_questions`, `request_confirmation`, `request_checkbox_confirmation`, and `request_item_verdicts` — and a genuine human comment was posted at or after the card was created, the card expires and `result.commentId` points at the comment that replaced it. Confirmation and verdict cards record this as `result.outcome: "superseded_by_comment"`; `ask_user_questions` records it as `result.expirationReason: "superseded_by_comment"` instead.
+
+Only real human comments count: the comment must have a user author and must not have been written by an agent run. Set `supersedeOnUserComment: false` in the payload when a card must survive discussion in the thread.
+
+Both sweeps run on `GET /api/issues/{issueId}/interactions`, so a caller that lists interactions always sees settled state — no separate cleanup call needed.
+
+### Interaction outcomes
+
+The `result.outcome` field tells you how a card ended. Which values are possible depends on the kind:
+
+| Kind | Possible `outcome` values |
+|---|---|
+| `request_confirmation` | `accepted`, `rejected`, `superseded_by_comment`, `stale_target`, `withdrawn`, `issue_closed` |
+| `request_checkbox_confirmation` | Same values as `request_confirmation` — its result is a confirmation result plus `selectedOptionIds`. |
+| `request_item_verdicts` | `resolved`, `superseded_by_comment`, `stale_target`, `cancelled`, `withdrawn`, `issue_closed` |
+| `suggest_tasks` | `withdrawn` or `issue_closed`, and otherwise absent — a normal response carries `createdTasks` / `rejectionReason` instead. |
+| `ask_user_questions` | `withdrawn` or `issue_closed`, and otherwise absent — a normal response carries `answers`, a cancellation carries `cancelled: true` with `cancellationReason`, and a comment-superseded card carries `expirationReason: "superseded_by_comment"`. |
+
+`request_item_verdicts` results also carry an optional `reason` string alongside the outcome, matching `request_confirmation`.
+
+If you are writing an integration that reads interaction results, treat `withdrawn` and `issue_closed` as "no decision was made" and do not wait for one — they are administrative endings, not answers.
+
+### Choosing the kind
+
+| Kind | When to use |
+|---|---|
+| `suggest_tasks` | The agent has identified work it could do next and wants the board (or user) to choose which to spin up as subtasks. |
+| `ask_user_questions` | The agent needs structured information (multiple choice, short text) it cannot extract from the comment thread. |
+| `request_confirmation` | The agent has a proposal — typically a plan revision or a destructive action — and needs explicit acceptance before proceeding. |
+| `request_checkbox_confirmation` | The agent needs a decision over one or more explicitly listed checkbox options. |
+| `request_item_verdicts` | The agent needs a verdict for each item in a supplied list. |
+
+For plan-approval flows, the recommended sequence is: update the `plan` document → create a `request_confirmation` interaction with an `idempotencyKey` bound to the latest plan revision → wait for `accept`. The agent only spawns implementation subtasks once the interaction is accepted.
+
+---
+
+## Retry a Scheduled Retry Now
+
+`POST /api/issues/{issueId}/scheduled-retry/retry-now`
+
+Use this when an issue has a live scheduled retry pending and you want the server to fire it immediately instead of waiting for the schedule. The route is board-only and company-scoped to the issue.
+
+The request body is empty. The response always includes `outcome`, `message`, and a `scheduledRetry` summary (or `null` when there was nothing to promote).
+
+| Outcome | Meaning |
+|---|---|
+| `promoted` | The scheduled retry was moved into the queued run pool and will pick up on the next heartbeat. |
+| `already_promoted` | A queued or running retry already exists for the issue; nothing else to do. |
+| `no_scheduled_retry` | No live scheduled retry exists — the affordance is a no-op. |
+| `gate_suppressed` | The promotion was blocked by a heartbeat gate (e.g. concurrency or budget); the run stays scheduled. |
+
+Activity is logged as `issue.scheduled_retry_retry_now` with the outcome attached, so you can find it in the audit trail when an operator clicks "Retry now" from the UI.
+
+---
+
+## Recovery actions
+
+Recovery actions are first-class records attached to a source issue when the system detects that the issue is stuck, stranded, or otherwise off the happy path. They carry an owner, structured evidence, a wake/monitor policy, and a resolution outcome — so the next-step decision lives on the issue itself instead of in scattered comments.
+
+Records live in the `issue_recovery_actions` table (migration `0084`). The issue detail and issue list responses expose the currently active recovery action on each issue as `activeRecoveryAction`, including on `blockedBy` / `blocks` relation summaries.
+
+### List recovery actions for an issue
+
+```
+GET /api/issues/{issueId}/recovery-actions
+```
+
+Returns the active recovery action attached to the issue, if any.
+
+Response:
+
+```json
+{
+  "active": { "...": "RecoveryAction" } ,
+  "actions": [ { "...": "RecoveryAction" } ]
+}
+```
+
+`active` is `null` when no recovery action is currently open. `actions` is an array containing the active action (or empty) — it exists so future revisions can include historical entries without changing the shape.
+
+### Resolve the active recovery action
+
+```
+POST /api/issues/{issueId}/recovery-actions/resolve
+```
+
+Resolve (or cancel) the active recovery action on the source issue and, in the same transaction, transition the source issue to the matching status.
+
+Request body:
+
+| Field | Type | Notes |
+|---|---|---|
+| `actionId` | uuid, optional | Optional. When set, must match the currently active recovery action on the issue. |
+| `outcome` | enum, required | One of `restored`, `false_positive`, `blocked`, `cancelled`. See the outcome table below. |
+| `sourceIssueStatus` | enum, required | One of `done`, `in_review`, `blocked`. Must be compatible with `outcome` (see rules). |
+| `resolutionNote` | string, optional | Multi-line note explaining the resolution. |
+
+Outcome rules (enforced by the validator):
+
+| Outcome | Allowed `sourceIssueStatus` | Permission | Resulting action `status` |
+|---|---|---|---|
+| `restored` | `done` or `in_review` | Agent or board | `resolved` |
+| `false_positive` | `done` or `in_review` | Board only | `resolved` |
+| `blocked` | `blocked` | Agent or board | `resolved` |
+| `cancelled` | `done` or `in_review` | Board only | `cancelled` |
+
+Additional constraints:
+
+- `outcome: "blocked"` requires the source issue to have at least one unresolved first-class blocker via `blockedByIssueIds` — otherwise the server returns `422 Unprocessable Entity`.
+- If the source issue is currently `in_review` under an execution policy, agent-authenticated resolutions must satisfy the same review-path checks as a normal status change.
+- The server writes an `issue.recovery_action_resolved` activity log entry (and an `issue.updated` entry when the source status actually changed).
+
+Response:
+
+```json
+{
+  "issue": { "...": "Issue", "activeRecoveryAction": null },
+  "recoveryAction": { "...": "RecoveryAction" }
+}
+```
+
+### Recovery action shape
+
+The `RecoveryAction` object exposed on responses has the following fields:
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | uuid | |
+| `companyId` | uuid | |
+| `sourceIssueId` | uuid | The issue the recovery action is attached to. |
+| `recoveryIssueId` | uuid \| null | Optional companion issue spawned to drive the recovery. |
+| `kind` | enum | See `RecoveryActionKind` below. |
+| `status` | enum | `active`, `escalated`, `resolved`, or `cancelled`. |
+| `ownerType` | enum | `agent`, `user`, `board`, or `system`. |
+| `ownerAgentId` | uuid \| null | Owning agent when `ownerType = "agent"`. |
+| `ownerUserId` | string \| null | Owning user when `ownerType = "user"`. |
+| `previousOwnerAgentId` | uuid \| null | The agent that held the issue before recovery started. |
+| `returnOwnerAgentId` | uuid \| null | The agent the issue should return to after recovery. |
+| `cause` | string | Short machine-readable cause tag. |
+| `fingerprint` | string | Stable fingerprint used to dedupe repeated detections. |
+| `evidence` | object | Free-form JSON capturing the detector's evidence. |
+| `nextAction` | string | The next action the owner is expected to take. |
+| `wakePolicy` | object \| null | Wake configuration for the owner. |
+| `monitorPolicy` | object \| null | Monitor configuration that produced the action. |
+| `attemptCount` | integer | Number of recovery attempts so far. |
+| `maxAttempts` | integer \| null | Optional cap on attempts before escalation. |
+| `timeoutAt` | timestamp \| null | When the action times out if unresolved. |
+| `lastAttemptAt` | timestamp \| null | Timestamp of the most recent attempt. |
+| `outcome` | enum \| null | Final outcome — see `RecoveryActionOutcome` below. |
+| `resolutionNote` | string \| null | Free-text resolution note. |
+| `resolvedAt` | timestamp \| null | When the action was resolved or cancelled. |
+| `createdAt` | timestamp | |
+| `updatedAt` | timestamp | |
+
+Only one recovery action can be `active` or `escalated` per source issue at a time (enforced by a partial unique index on `(companyId, sourceIssueId)` where `status in ('active', 'escalated')`).
+
+#### Enum values
+
+**`RecoveryActionKind`** — what triggered the recovery action:
+
+- `missing_disposition`
+- `stranded_assigned_issue`
+- `active_run_watchdog`
+- `issue_graph_liveness`
+
+**`RecoveryActionStatus`**:
+
+- `active`
+- `escalated`
+- `resolved`
+- `cancelled`
+
+**`RecoveryActionOwnerType`**:
+
+- `agent`
+- `user`
+- `board`
+- `system`
+
+**`RecoveryActionOutcome`** — set on the resolved record:
+
+- `restored` — the source issue was put back on a healthy path.
+- `delegated` — ownership moved elsewhere (set internally; not accepted on `/resolve`).
+- `false_positive` — the detector was wrong; no real problem.
+- `blocked` — the issue is genuinely blocked by another issue.
+- `escalated` — escalated to the board (set internally; not accepted on `/resolve`).
+- `cancelled` — the recovery effort is abandoned.
+
+The `/recovery-actions/resolve` endpoint only accepts `restored`, `false_positive`, `blocked`, and `cancelled`. The `delegated` and `escalated` outcomes are produced by other internal flows.
+
+---
+
+## Check workspace file availability
+
+```
+POST /api/issues/{issueId}/file-resources/availability
+```
+
+Before offering to open a workspace file an agent referenced on an issue, the UI checks whether that file can actually be opened right now. This endpoint answers that question for a batch of paths in one call, returning an availability outcome per path (openable, denied, or unavailable) rather than the file contents.
+
+The caller must be on the board or an agent with access to the issue's company. The request carries the file paths to check, and the number of paths per request is capped — oversized requests are rejected. The endpoint is rate-limited per company, actor, and issue, so a burst of checks backs off rather than hammering the workspace.
+
+---
+
+## Issue Lifecycle
+
+### Status values
+
+| Status | Meaning | Terminal? |
+|---|---|---|
+| `backlog` | Parked, unscheduled. Not picked up by inbox queries by default. | No |
+| `todo` | Ready and actionable. Waiting for an agent to check it out. | No |
+| `in_progress` | Checked out by an agent and actively executing. Exclusive — only one agent at a time. | No |
+| `in_review` | Paused pending reviewer, approver, board, or user feedback. The work is paused, not done. | No |
+| `blocked` | Cannot proceed until a named blocker is resolved. Always paired with a blocker explanation or `blockedByIssueIds`. | No |
+| `done` | Work complete. | Yes |
+| `cancelled` | Intentionally abandoned. | Yes |
+
+### State machine
+
+```
+                      ┌──────────────┐
+                      │   backlog    │
+                      └──────┬───────┘
+                             │ ready
+                             ▼
+                      ┌──────────────┐    release
+              ┌──────▶│     todo     │◀────────────┐
+              │       └──────┬───────┘             │
+              │              │ checkout            │
+              │ unblock      ▼                     │
+              │       ┌──────────────┐             │
+              │       │ in_progress  │─────────────┤
+              │       └──┬─────┬─────┘             │
+              │          │     │ submit            │
+              │  blocker │     │                   │
+              │          │     ▼                   │
+              │          │  ┌──────────────┐       │
+              │          │  │  in_review   │       │
+              │          │  └──┬───────┬───┘       │
+              │          │     │       │ changes   │
+              │          │     │       │ requested │
+              │          ▼     │       └───────────┘
+              │   ┌──────────┐ │
+              └───│ blocked  │ │ approve / done
+                  └──────────┘ ▼
+                  ┌──────────────┐    ┌──────────────┐
+                  │     done     │    │  cancelled   │
+                  └──────────────┘    └──────────────┘
+                     (terminal)         (terminal)
+```
+
+<details>
+<summary>Same diagram in Mermaid (for renderers that support it)</summary>
+
+```mermaid
+stateDiagram-v2
+    [*] --> backlog
+    backlog --> todo: ready
+    todo --> in_progress: checkout
+    in_progress --> in_review: submit
+    in_progress --> done: complete
+    in_progress --> blocked: blocker
+    in_progress --> todo: release
+    in_review --> in_progress: changes requested
+    in_review --> done: approve
+    blocked --> todo: unblock / release
+    todo --> cancelled
+    in_progress --> cancelled
+    in_review --> cancelled
+    blocked --> cancelled
+    done --> todo: reopen
+    cancelled --> todo: reopen
+    done --> [*]
+    cancelled --> [*]
+```
+
+</details>
+
+### Allowed transitions
+
+| From | To | Triggered by |
+|---|---|---|
+| `backlog` | `todo` | Manual scheduling, ready-for-work signal. |
+| `todo` | `in_progress` | `POST /api/issues/{id}/checkout` (atomic). |
+| `in_progress` | `in_review` | `PATCH` with `status: "in_review"`. Used when the work needs reviewer/approver/board sign-off before being considered done. |
+| `in_progress` | `done` | `PATCH` with `status: "done"`. Sets `completedAt`. |
+| `in_progress` | `blocked` | `PATCH` with `status: "blocked"` and a comment naming the unblock owner and action, or `blockedByIssueIds` populated with concrete blockers. |
+| `in_review` | `in_progress` | Reviewer requested changes (PATCH `status: "in_progress"`). The next execution-policy stage participant becomes the assignee. |
+| `in_review` | `done` | Reviewer/approver advanced the issue (PATCH `status: "done"` from the current stage participant). |
+| `blocked` | `todo` | Blocker resolved (manually, via `release`, or automatically by `issue_blockers_resolved` wake when all `blockedBy` issues reach `done`). |
+| any non-terminal | `cancelled` | `PATCH` with `status: "cancelled"`. Sets `cancelledAt`. |
+| `done` / `cancelled` | `todo` | `PATCH` with `reopen: true`. The only way to bring a terminal issue back. |
+
+### Automatic side effects
+
+When the server transitions an issue, it also:
+
+| Transition | Side effect |
+|---|---|
+| `→ in_progress` | Sets `startedAt`. Records the `checkoutRunId` for ownership. |
+| `→ done` | Sets `completedAt`. Wakes any issues whose `blockedByIssueIds` are now fully resolved (`issue_blockers_resolved`). Wakes the parent if all children are now terminal (`issue_children_completed`). |
+| `→ cancelled` | Sets `cancelledAt`. Cancelled issues do **not** count as resolved blockers — replace or remove them explicitly to unblock dependents. |
+| `→ blocked` | Records the unresolved blocker count. Does not auto-resolve when the parent is closed. |
+| `release` | Clears `assigneeAgentId` and `checkoutRunId`, sets status to `todo`. `assigneeUserId` is preserved. |
+| `reopen: true` | If the issue is `done` or `cancelled`, resets to `todo` (or another status if explicitly provided). |
+
+### Review stages and `executionState`
+
+When an issue moves to `in_review` under an execution policy, the server also populates the `executionState` field with the current review or approval stage. That object captures `currentStageType`, `currentParticipant`, `returnAssignee`, and `lastDecisionOutcome`. Only the current stage participant can advance or reject the stage — other actors get `422`.
+
+For full mechanics see the [Execution Policy guide](../../guides/power/execution-policy.md).
+
+### Blockers (`blockedByIssueIds`)
+
+Express "A is blocked by B" as a first-class link, not as free-text:
+
+- Send `blockedByIssueIds` on `POST /api/companies/{companyId}/issues` or `PATCH /api/issues/{issueId}` to declare blockers. The array replaces the current set on each update; send `[]` to clear.
+- The server validates that all referenced issues belong to the same company, the issue does not block itself, and the resulting graph has no cycles.
+- When every blocker reaches `done`, dependent issues get an `issue_blockers_resolved` wake.
+
+### Hidden issues
+
+`hiddenAt` removes an issue from normal list responses without changing its status. Use it to declutter — the issue keeps its history and remains queryable by id. Set or clear `hiddenAt` via `PATCH /api/issues/{issueId}`.
+
+### Common mistakes
+
+| Mistake | What goes wrong | Do this instead |
+|---|---|---|
+| `PATCH status: "in_progress"` to claim a task | Skips checkout, leaves `checkoutRunId` empty, race-prone. | Always claim work via `POST /api/issues/{id}/checkout` with `expectedStatuses` and the `X-Geetorus-Run-Id` header. |
+| Retrying a `409 Conflict` from checkout | The issue is owned by another agent or run. Retrying steals or thrashes the lock. | Treat 409 as terminal — pick a different issue. Only re-checkout when adopting a stale lock from a crashed run, with `in_progress` in `expectedStatuses`. |
+| Free-text "blocked by PAP-XYZ" comment | Dependent never auto-wakes when the blocker resolves. | Set `blockedByIssueIds` on create or PATCH. The server fires `issue_blockers_resolved` automatically. |
+| Cancelling a blocker and expecting auto-unblock | `cancelled` blockers do not count as resolved. Dependents stay blocked. | Replace or remove the cancelled id from `blockedByIssueIds` explicitly. |
+| Approving an `in_review` issue you are not the current participant for | Server returns `422`. | Inspect `executionState.currentParticipant` first; only the named participant can advance the stage. |
+| Reopening with `PATCH status: "todo"` on a `done` issue | Rejected — terminal status transitions require `reopen`. | Send `PATCH { reopen: true, comment: "…" }`. Use a different status only if you need to override the default `todo`. |
+| Forgetting `X-Geetorus-Run-Id` on agent updates | Server rejects the mutation as a checkout-ownership violation. | Always pass the current heartbeat run id on agent-authenticated `PATCH`/`POST` requests against checked-out issues. |
