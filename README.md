@@ -6,13 +6,16 @@ Source for the [Geetorus](https://github.com/geetorusai/geetorus) documentation 
 
 ## What's inside
 
-- **Guides** — Getting started, core concepts, and day-to-day usage.
-- **API reference** — Control-plane endpoints and payload schemas.
-- **CLI reference** — `geetorus` command surface.
-- **Adapters** — Plugin authoring and the integrations catalogue.
-- **Deploy** — Self-hosting, upgrades, and operational guidance.
+- **🚀 Getting Started** — Onboarding wizard, Docker one-click install, and running from source.
+- **💓 Pulse Engine** — Autonomous agent scheduling, periodic cron routines, and reactive task wakes.
+- **💰 Budgets & Governance** — Token & dollar cost controls, review gates, and approval workflows.
+- **🛠️ Tool & Skill Studio** — Runtime MCP server integrations, skills store, and execution policies.
+- **🏢 Multi-Organization** — Department hierarchies, org charts, and tenant workspace isolation.
+- **🔌 Model Adapters** — Claude Code, OpenCode (local/free), OpenAI Codex, Gemini, and custom HTTP runners.
+- **📖 API & CLI Reference** — REST control-plane endpoints, OpenAPI schemas, and `@geetorusai/cli` reference.
+- **🚢 Deployment** — Docker Compose, Kubernetes, and Cloudflare Pages operational guides.
 
-The site is a single static shell that renders the Markdown files in `docs/` directly — no framework, no build step required to read the raw pages.
+The site is a high-performance static shell that renders the Markdown files in `docs/` directly with instant client-side search, crawlable sitemaps, and theme support.
 
 ## Build and deployment
 
